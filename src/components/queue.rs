@@ -5,16 +5,17 @@ use ash::{ext::queue_family_foreign, khr::surface, vk::Queue};
 use super::{device::{QueueFamilyIndices, VkDevice}, surface::KHRSurface};
 
 #[allow(warnings)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum QueueType {
     GRAPHICS_QUEUE,
     PRESENT_QUEUE,
 }
 
 pub struct VkQueue {
-    queue: Queue,
-    queue_family_index: u32,
-    device: Arc<VkDevice>,
-    queue_type: QueueType,
+    pub queue: Queue,
+    pub queue_family_index: u32,
+    pub device: Arc<VkDevice>,
+    pub queue_type: QueueType,
 }
 
 impl Deref for VkQueue {
