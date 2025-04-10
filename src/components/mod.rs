@@ -11,4 +11,5 @@ pub mod pipeline;
 pub mod util;
 pub mod render_pass;
 pub mod geom;
+pub mod frame_data;
 mod image_util;
