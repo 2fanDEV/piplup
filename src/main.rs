@@ -1,6 +1,6 @@
 use log::{debug, LevelFilter};
 use piplup::app::App;
-use winit::{event_loop::EventLoop, window};
+use winit::event_loop::EventLoop;
 
 fn main() {
     println!("Hello, world!");

@@ -7,7 +7,7 @@ use ash::{
     },
 };
 use vk_mem::{Alloc, MemoryUsage};
-use winit::window::{self, Window};
+use winit::window::Window;
 
 use super::{
     allocated_image::AllocatedImage, device::VkDevice, image_util::{image_create_info, image_subresource_range, image_view_create_info}, instance::VkInstance, queue::VkQueue, swapchain_support_details::SwapchainSupportDetails
@@ -20,8 +20,9 @@ pub struct ImageDetails {
 }
 
 #[derive(Clone)]
+#[allow(unused)]
 pub struct KHRSwapchain {
-    s_device: swapchain::Device,
+    pub s_device: swapchain::Device,
     swapchain: SwapchainKHR,
     pub details: SwapchainSupportDetails,
     device: Arc<VkDevice>,
@@ -93,7 +94,8 @@ impl KHRSwapchain {
             details: swapchain_support_details,
         })
     }
-
+    
+    #[allow(deprecated)]
     pub fn create_allocated_image(
         &self,
         vma_allocator: Arc<vk_mem::Allocator>,

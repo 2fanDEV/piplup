@@ -4,33 +4,34 @@ use ash::vk::{
     CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Fence, FenceCreateFlags, FenceCreateInfo, Semaphore, SemaphoreCreateFlags, SemaphoreCreateInfo
 };
 
-use super::{allocated_image::AllocatedImage, device::VkDevice, swapchain::ImageDetails};
+use super::device::VkDevice;
 
+#[derive(Clone)]
 pub struct FrameData {
     pub command_pool: CommandPool,
     pub command_buffer: CommandBuffer,
-    pub render_semaphore: Semaphore,
-    pub swapchain_semaphore: Semaphore,
-    pub render_fence: Fence,
+    pub render_semaphore: Vec<Semaphore>,
+    pub swapchain_semaphore: Vec<Semaphore>,
+    pub render_fence: Vec<Fence>,
 }
 
 impl FrameData {
-    fn new(device: Arc<VkDevice>, queue_family_index: u32) -> Self {
+    pub fn new(device: Arc<VkDevice>, queue_family_index: u32) -> Self {
         unsafe {
-        let command_pool = device.create_command_pool(&create_command_pool_info(queue_family_index), None).unwrap();
+        let command_pool = device.create_command_pool(&create_command_pool_info(queue_family_index, CommandPoolCreateFlags::RESET_COMMAND_BUFFER), None).unwrap();
             Self {
                 command_pool,
                 command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(command_pool)).unwrap()[0],
-                render_semaphore: device.create_semaphore(&create_semaphore_info(), None).unwrap(),
-                swapchain_semaphore: device.create_semaphore(&create_semaphore_info(), None).unwrap(),
-                render_fence: device.create_fence(&create_fence_info(), None).unwrap(),
+                render_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
+                swapchain_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
+                render_fence: vec![device.create_fence(&create_fence_info(), None).unwrap()],
             }
         }
     }
 }
 
-pub fn create_command_pool_info(queue_family_index: u32) -> CommandPoolCreateInfo<'static> {
-    CommandPoolCreateInfo::default().flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+pub fn create_command_pool_info(queue_family_index: u32, flags: CommandPoolCreateFlags) -> CommandPoolCreateInfo<'static> {
+    CommandPoolCreateInfo::default().flags(flags)
         .queue_family_index(queue_family_index)
 }
 

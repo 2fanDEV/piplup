@@ -4,6 +4,7 @@ use ash::vk::{AttachmentDescription, AttachmentLoadOp, AttachmentReference, Atta
 
 use super::device::VkDevice;
 
+#[allow(unused)]
 pub struct VkRenderPass {
     render_pass: RenderPass,
     device: Arc<VkDevice>,

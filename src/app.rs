@@ -1,14 +1,17 @@
-use winit::{application::ApplicationHandler, window::{Window, WindowAttributes}};
+use winit::{
+    application::ApplicationHandler,
+    window::{Window, WindowAttributes},
+};
 
 use crate::renderer::Renderer;
 
 #[derive(Default)]
 pub struct App {
     window: Option<Window>,
-    renderer: Option<Renderer>
+    renderer: Option<Renderer>,
 }
 
-
+#[allow(warnings)]
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window_attributes = WindowAttributes::default();
@@ -22,5 +25,9 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        self.renderer
+            .as_mut()
+            .unwrap()
+            .display(self.window.as_mut().unwrap());
     }
 }

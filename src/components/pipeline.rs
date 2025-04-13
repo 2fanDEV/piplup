@@ -17,6 +17,7 @@ use ash::vk::ColorComponentFlags;
 use super::{device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module};
 
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub struct ShaderInformation {
     shader_file_path: String,
     stages: ShaderStageFlags,
@@ -58,6 +59,7 @@ pub enum PipelineType {
     COMPUTE,
 }
 
+#[allow(unused)]
 pub struct VkPipeline {
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,

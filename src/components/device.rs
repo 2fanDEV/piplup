@@ -1,8 +1,7 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::{
-    khr::surface,
-    vk::{DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, QueueFlags, SurfaceKHR, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME},
+    vk::{DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, QueueFlags, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME},
     Device, Instance,
 };
 use log::error;
@@ -76,7 +75,6 @@ impl VkDevice {
             &instance,
             physical_device,
             surface,
-            window,
         ) {
             Some(device) => device,
             None => panic!()
@@ -92,7 +90,6 @@ impl VkDevice {
         instance: &VkInstance,
         physical_device: Option<PhysicalDevice>,
         surface: Arc<KHRSurface>,
-        window: &Window,
     ) -> Option<ash::Device> {
         match physical_device {
             Some(physical_device) => {
@@ -186,8 +183,8 @@ impl VkDevice {
             instance,
             surface.clone()
         );
-        let features = unsafe { instance.get_physical_device_features(device) };
-        let properties = unsafe { instance.get_physical_device_properties(device) };
+        let _features = unsafe { instance.get_physical_device_features(device) };
+        let _properties = unsafe { instance.get_physical_device_properties(device) };
         let swapchain_support_details = SwapchainSupportDetails::get_swapchain_support_details(
             device,
             surface.clone(),

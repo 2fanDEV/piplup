@@ -1,6 +1,6 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::{ext::queue_family_foreign, khr::surface, vk::Queue};
+use ash::vk::Queue;
 
 use super::{device::{QueueFamilyIndices, VkDevice}, surface::KHRSurface};
 
@@ -11,6 +11,7 @@ pub enum QueueType {
     PRESENT_QUEUE,
 }
 
+#[derive(Clone)]
 pub struct VkQueue {
     pub queue: Queue,
     pub queue_family_index: u32,

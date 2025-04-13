@@ -16,6 +16,7 @@ use ash::{
 use log::{debug, info, warn};
 use winit::{raw_window_handle::HasDisplayHandle, window::Window};
 
+#[allow(warnings)]
 pub fn load_vulkan_library() -> Result<Entry, LoadingError> {
     #[cfg(target_os = "macos")]
     let entry_path = env::home_dir().unwrap().to_str().unwrap().to_owned()
@@ -119,7 +120,7 @@ impl VkInstance {
         };
         Ok(Self {
             entry,
-            instance: instance,
+            instance,
         })
     }
 
@@ -189,7 +190,7 @@ impl VkInstance {
         message_severity: DebugUtilsMessageSeverityFlagsEXT,
         message_type: DebugUtilsMessageTypeFlagsEXT,
         callback_data: *const DebugUtilsMessengerCallbackDataEXT<'_>,
-        user_data: *mut c_void,
+        _user_data: *mut c_void,
     ) -> u32 {
         unsafe {
             let p_callback_data = *callback_data;
@@ -218,12 +219,7 @@ impl VkInstance {
                     info!(
                         "{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n"
                     );
-                }
-                _ => {
-                    info!(
-                        "{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n"
-                    );
-                }
+                } 
             }
         }
         0

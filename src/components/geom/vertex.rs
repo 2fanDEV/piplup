@@ -3,17 +3,17 @@ use std::mem::offset_of;
 use ash::vk::{
     Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
-use cgmath::{Vector2, Vector3};
+use cgmath::{Vector2, Vector4};
 
 #[derive(Debug, Clone)]
 pub struct Vertex2D {
     pos: Vector2<f32>,
-    color: Vector3<f32>,
+    color: Vector4<f32>,
     texture_coords: Vector2<f32>,
 }
 
 impl Vertex2D {
-    pub fn new(pos: Vector2<f32>, color: Vector3<f32>, texture_coords: Vector2<f32>) -> Self {
+    pub fn new(pos: Vector2<f32>, color: Vector4<f32>, texture_coords: Vector2<f32>) -> Self {
         Vertex2D {
             pos,
             color,

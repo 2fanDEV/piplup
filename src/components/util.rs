@@ -1,4 +1,4 @@
-use std::{ io::{Cursor, Error}, path::Path, sync::Arc};
+use std::{ io::{Cursor, Error}, path::Path};
 
 use ash::{util::read_spv, vk::{ShaderModule, ShaderModuleCreateInfo}, Device};
 

@@ -73,7 +73,7 @@ impl DescriptorAllocator {
 
     pub fn get_compute_descriptors(
         &self,
-        allocated_image: AllocatedImage,
+        allocated_image: &AllocatedImage,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
     ) -> Result<DescriptorSetDetails, Error> {
