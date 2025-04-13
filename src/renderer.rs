@@ -3,7 +3,9 @@ use std::{io::Error, ops::Add, sync::Arc};
 use ash::{
     ext::debug_utils,
     vk::{
-        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Fence, Framebuffer, RenderPassBeginInfo, ShaderStageFlags, SubpassContents
+        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
+        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Fence, Framebuffer,
+        Offset2D, Rect2D, RenderPassBeginInfo, ShaderStageFlags, SubpassContents,
     },
 };
 use log::debug;
@@ -14,7 +16,17 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage, buffers::VkFrameBuffer, descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio}, device::{self, VkDevice}, frame_data::FrameData, instance::{self, VkInstance}, pipeline::{ShaderInformation, VkPipeline}, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
+        allocated_image::AllocatedImage,
+        buffers::VkFrameBuffer,
+        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        device::{self, VkDevice},
+        frame_data::FrameData,
+        instance::{self, VkInstance},
+        pipeline::{ShaderInformation, VkPipeline},
+        queue::{QueueType, VkQueue},
+        render_pass::VkRenderPass,
+        surface,
+        swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::integration::EguiIntegration,
 };
@@ -39,6 +51,7 @@ pub struct Renderer {
     framebuffers: Vec<VkFrameBuffer>,
     frame_data: Vec<FrameData>,
     frame_idx: usize,
+    render_area: Rect2D,
     integration: EguiIntegration,
 }
 
@@ -136,7 +149,9 @@ impl Renderer {
             ));
         }
         let integration = EguiIntegration::new(window);
-
+        let render_area = Rect2D::default()
+            .offset(Offset2D::default().y(0).x(0))
+            .extent(swapchain.details.clone().choose_swapchain_extent(window));
         Ok(Self {
             instance: vk_instance,
             debug_instance,
@@ -156,6 +171,7 @@ impl Renderer {
             vk_mem_allocator,
             frame_data,
             frame_idx: 0,
+            render_area,
             integration,
         })
     }
@@ -213,17 +229,25 @@ impl Renderer {
             self.device
                 .begin_command_buffer(command_buffer, &begin_info)
                 .unwrap();
-            
+
             let clear_value = vec![ClearValue {
-                color: ash::vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] }
+                color: ash::vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
             }];
 
-            let render_pass_begin_info = RenderPassBeginInfo::default().render_pass(**self.render_pass)
+            let render_pass_begin_info = RenderPassBeginInfo::default()
+                .render_pass(**self.render_pass)
                 .framebuffer(*self.framebuffers[image_index.index as usize])
-                .clear_values(&clear_value);
-            
-            self.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, SubpassContents::INLINE);
-                
+                .clear_values(&clear_value)
+                .render_area(self.render_area);
+
+            self.device.cmd_begin_render_pass(
+                command_buffer,
+                &render_pass_begin_info,
+                SubpassContents::INLINE,
+            );
+
             self.device.cmd_end_render_pass(command_buffer);
             //           self.device.cmd_begin_render_pass(ccommand_buffer, , contents);
             self.device.end_command_buffer(command_buffer).unwrap();
