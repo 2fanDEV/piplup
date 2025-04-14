@@ -8,7 +8,6 @@ use super::{command_buffers::{self, VkCommandPool}, device::VkDevice, queue::VkQ
 
 #[derive(Clone)]
 pub struct FrameData {
-    pub command_pool: VkCommandPool,
     pub command_buffer: CommandBuffer,
     pub imm_command_buffer: CommandBuffer,
     pub render_semaphore: Vec<Semaphore>,
@@ -17,13 +16,11 @@ pub struct FrameData {
 }
 
 impl FrameData {
-    pub fn new(device: Arc<VkDevice>, queue: Arc<VkQueue>) -> Self {
+    pub fn new(device: Arc<VkDevice>, command_pool: &VkCommandPool) -> Self {
         unsafe {
-        let command_pool = VkCommandPool::new(queue);
             Self {
-                command_pool: command_pool.clone(),
-                command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(*command_pool)).unwrap()[0],
-                imm_command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(*command_pool)).unwrap()[0],
+                command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(**command_pool)).unwrap()[0],
+                imm_command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(**command_pool)).unwrap()[0],
                 render_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
                 swapchain_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
                 render_fence: vec![device.create_fence(&create_fence_info(), None).unwrap()],
@@ -34,11 +31,6 @@ impl FrameData {
     pub fn get_command_buffer(&self) -> Vec<CommandBuffer> {
         vec![self.command_buffer]
     }
-}
-
-pub fn create_command_pool_info(queue_family_index: u32, flags: CommandPoolCreateFlags) -> CommandPoolCreateInfo<'static> {
-    CommandPoolCreateInfo::default().flags(flags)
-        .queue_family_index(queue_family_index)
 }
 
 pub fn allocate_command_buffer_info(command_pool: CommandPool) -> CommandBufferAllocateInfo<'static> {

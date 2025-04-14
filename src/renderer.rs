@@ -17,7 +17,18 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage, buffers::VkFrameBuffer, command_buffers, descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio}, device::{self, VkDevice}, frame_data::FrameData, instance::{self, VkInstance}, pipeline::{ShaderInformation, VkPipeline}, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
+        allocated_image::AllocatedImage,
+        buffers::VkFrameBuffer,
+        command_buffers::{self, VkCommandPool},
+        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        device::{self, VkDevice},
+        frame_data::FrameData,
+        instance::{self, VkInstance},
+        pipeline::{ShaderInformation, VkPipeline},
+        queue::{QueueType, VkQueue},
+        render_pass::VkRenderPass,
+        surface,
+        swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::integration::{EguiIntegration, MeshBuffers},
 };
@@ -44,6 +55,7 @@ pub struct Renderer {
     frame_idx: usize,
     render_area: Rect2D,
     integration: EguiIntegration,
+    command_pool: VkCommandPool,
 }
 
 #[allow(unused)]
@@ -133,17 +145,14 @@ impl Renderer {
             &image_details,
         );
         let mut frame_data: Vec<FrameData> = Vec::new();
+        let command_pool = VkCommandPool::new(graphics_queue.clone());
         for _i in 0..MAX_FRAMES {
-            frame_data.push(FrameData::new(
-                vk_device.clone(),
-                graphics_queue.clone(),
-            ));
+            frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
         }
         let integration = EguiIntegration::new(window);
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
             .extent(swapchain.details.clone().choose_swapchain_extent(window));
-        
         Ok(Self {
             instance: vk_instance,
             debug_instance,
@@ -165,6 +174,7 @@ impl Renderer {
             frame_idx: 0,
             render_area,
             integration,
+            command_pool,
         })
     }
 
@@ -216,43 +226,27 @@ impl Renderer {
                         mesh,
                         self.vk_mem_allocator.clone(),
                         self.graphics_queue.clone(),
-                        &frame_data.command_pool,
+                        &self.command_pool,
                     )
                     .unwrap()
                 })
                 .collect::<Vec<_>>();
 
-            self.immediate_submit(
-                |_,_| self.render_mesh(frame_data.command_buffer),         
-                frame_data,
-                swapchain_image_index,
-                mesh_buffers.get(0).unwrap(),
-            );
-
             // self.record_command_buffer(frame_data.command_buffer, swapchain_image_index);
         }
     }
-    
-    fn render_mesh(&self, command_buffer: CommandBuffer) {
-        
-    }
 
-    fn immediate_submit<F: FnOnce(&Renderer, CommandBuffer)>(
-        &self,
-        function: F,
-        frame_data: &FrameData,
-        image_index: ImageIndex,
-        mesh_buffers: &MeshBuffers,
-    ) {
-        let command = frame_data.command_pool.single_time_command().unwrap();
-        debug!("{:?}", mesh_buffers);
+    fn render_mesh(&self, command_buffer: CommandBuffer) {}
+
+    fn immediate_submit<F: FnOnce(&Renderer, CommandBuffer)>(&self, function: F) {
+        let command = self.command_pool.single_time_command().unwrap();
         function(self, command);
-        frame_data.command_pool.end_single_time_command(self.graphics_queue.clone(), command);
+        self.command_pool
+            .end_single_time_command(self.graphics_queue.clone(), command);
     }
 
     fn record_command_buffer(&self, frame_data: &FrameData, image_index: ImageIndex) {
-        unsafe {
-        }
+        unsafe {}
     }
 
     fn submit_queue(
@@ -269,7 +263,8 @@ impl Renderer {
             .signal_semaphores(&frame_data.swapchain_semaphore)];
         unsafe {
             self.device
-                .queue_submit(queue, &submit_info, frame_data.render_fence[0]).unwrap()
+                .queue_submit(queue, &submit_info, frame_data.render_fence[0])
+                .unwrap()
         };
     }
 
