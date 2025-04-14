@@ -59,6 +59,7 @@ impl VkFrameBuffer {
     }
 }
 
+#[derive(Debug)]
 pub struct VkBuffer {
     pub buffer: Buffer,
     pub allocation: Allocation,
@@ -76,11 +77,11 @@ impl VkBuffer {
     pub fn create_buffer<T>(
         allocator: &vk_mem::Allocator,
         buffer_elements: &[T],
-        queues: &[VkQueue],
+        queues: &[Arc<VkQueue>],
         buffer_usage: BufferUsageFlags,
         memory_usage: MemoryUsage,
         memory_property_flags: MemoryPropertyFlags,
-        command_pool: Arc<VkCommandPool>,
+        command_pool: &VkCommandPool,
     ) -> Result<VkBuffer, Error> {
         let buffer_size = buffer_elements.len() * size_of::<T>();
         let mut staging_buffer = Self::allocate_buffer(
@@ -130,7 +131,7 @@ impl VkBuffer {
     fn allocate_buffer<T>(
         allocator: &vk_mem::Allocator,
         buffer_elements: &[T],
-        queues: &[VkQueue],
+        queues: &[Arc<VkQueue>],
         buffer_usage: BufferUsageFlags,
         memory_usage: MemoryUsage,
         memory_property_flags: MemoryPropertyFlags,
@@ -162,8 +163,8 @@ impl VkBuffer {
         src: Buffer,
         dst: Buffer,
         size: DeviceSize,
-        queue: VkQueue,
-        command_pool: Arc<VkCommandPool>,
+        queue: Arc<VkQueue>,
+        command_pool: &VkCommandPool,
     ) {
         let command_buffer = command_pool.single_time_command().unwrap();
         let buffer_copy = vec![BufferCopy::default().src_offset(0).dst_offset(0).size(size)];

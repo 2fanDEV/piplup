@@ -5,30 +5,21 @@ use ash::{
     vk::{
         ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Fence, Framebuffer,
-        Offset2D, Rect2D, RenderPassBeginInfo, ShaderStageFlags, SubpassContents,
+        Offset2D, PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo,
+        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents,
     },
 };
 use log::debug;
 use vk_mem::{Allocator, AllocatorCreateInfo};
-use winit::window::{self, Window};
+use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage,
-        buffers::VkFrameBuffer,
-        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
-        device::{self, VkDevice},
-        frame_data::FrameData,
-        instance::{self, VkInstance},
-        pipeline::{ShaderInformation, VkPipeline},
-        queue::{QueueType, VkQueue},
-        render_pass::VkRenderPass,
-        surface,
-        swapchain::{ImageDetails, KHRSwapchain},
+        allocated_image::AllocatedImage, buffers::VkFrameBuffer, command_buffers, descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio}, device::{self, VkDevice}, frame_data::FrameData, instance::{self, VkInstance}, pipeline::{ShaderInformation, VkPipeline}, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
     },
-    egui::integration::EguiIntegration,
+    egui::integration::{EguiIntegration, MeshBuffers},
 };
 
 #[allow(unused)]
@@ -145,13 +136,14 @@ impl Renderer {
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(
                 vk_device.clone(),
-                graphics_queue.queue_family_index,
+                graphics_queue.clone(),
             ));
         }
         let integration = EguiIntegration::new(window);
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
             .extent(swapchain.details.clone().choose_swapchain_extent(window));
+        
         Ok(Self {
             instance: vk_instance,
             debug_instance,
@@ -200,61 +192,94 @@ impl Renderer {
                     )
                     .unwrap(),
             );
-            let run = self.integration.run(
-                |ctx| {
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        ui.label("Hello world!");
-                        if ui.button("Click me").clicked() {
-                            debug!("CLICKED");
-                        }
-                    });
-                },
-                window,
-            );
+
             self.device
                 .reset_command_buffer(frame_data.command_buffer, CommandBufferResetFlags::empty())
                 .unwrap();
 
-            self.record_command_buffer(frame_data.command_buffer, swapchain_image_index);
+            let mesh_buffers = self
+                .integration
+                .run(
+                    |ctx| {
+                        egui::CentralPanel::default().show(&ctx, |ui| {
+                            ui.label("Hello world!");
+                            if ui.button("Click me").clicked() {
+                                debug!("CLICKED");
+                            }
+                        });
+                    },
+                    window,
+                )
+                .into_iter()
+                .map(|mesh| {
+                    MeshBuffers::new(
+                        mesh,
+                        self.vk_mem_allocator.clone(),
+                        self.graphics_queue.clone(),
+                        &frame_data.command_pool,
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
 
-            self.submit_queue();
-            self.present_queue();
-        }
-    }
-
-    fn record_command_buffer(&self, command_buffer: CommandBuffer, image_index: ImageIndex) {
-        unsafe {
-            let begin_info =
-                CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            self.device
-                .begin_command_buffer(command_buffer, &begin_info)
-                .unwrap();
-
-            let clear_value = vec![ClearValue {
-                color: ash::vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            }];
-
-            let render_pass_begin_info = RenderPassBeginInfo::default()
-                .render_pass(**self.render_pass)
-                .framebuffer(*self.framebuffers[image_index.index as usize])
-                .clear_values(&clear_value)
-                .render_area(self.render_area);
-
-            self.device.cmd_begin_render_pass(
-                command_buffer,
-                &render_pass_begin_info,
-                SubpassContents::INLINE,
+            self.immediate_submit(
+                |_,_| self.render_mesh(frame_data.command_buffer),         
+                frame_data,
+                swapchain_image_index,
+                mesh_buffers.get(0).unwrap(),
             );
 
-            self.device.cmd_end_render_pass(command_buffer);
-            //           self.device.cmd_begin_render_pass(ccommand_buffer, , contents);
-            self.device.end_command_buffer(command_buffer).unwrap();
+            // self.record_command_buffer(frame_data.command_buffer, swapchain_image_index);
+        }
+    }
+    
+    fn render_mesh(&self, command_buffer: CommandBuffer) {
+        
+    }
+
+    fn immediate_submit<F: FnOnce(&Renderer, CommandBuffer)>(
+        &self,
+        function: F,
+        frame_data: &FrameData,
+        image_index: ImageIndex,
+        mesh_buffers: &MeshBuffers,
+    ) {
+        let command = frame_data.command_pool.single_time_command().unwrap();
+        debug!("{:?}", mesh_buffers);
+        function(self, command);
+        frame_data.command_pool.end_single_time_command(self.graphics_queue.clone(), command);
+    }
+
+    fn record_command_buffer(&self, frame_data: &FrameData, image_index: ImageIndex) {
+        unsafe {
         }
     }
 
-    fn submit_queue(&self) {}
+    fn submit_queue(
+        &self,
+        queue: Queue,
+        frame_data: &FrameData,
+        stage_masks: &[PipelineStageFlags],
+    ) {
+        let command_buffers = frame_data.get_command_buffer();
+        let submit_info = vec![SubmitInfo::default()
+            .command_buffers(&command_buffers)
+            .wait_dst_stage_mask(stage_masks)
+            .signal_semaphores(&frame_data.render_semaphore)
+            .signal_semaphores(&frame_data.swapchain_semaphore)];
+        unsafe {
+            self.device
+                .queue_submit(queue, &submit_info, frame_data.render_fence[0]).unwrap()
+        };
+    }
 
-    fn present_queue(&self) {}
+    fn present_queue(&self, queue: Queue, wait_semaphores: &[Semaphore]) {
+        let present_info = PresentInfoKHR::default().wait_semaphores(wait_semaphores);
+        unsafe {
+            self.swapchain
+                .s_device
+                .queue_present(queue, &present_info)
+                .unwrap()
+        };
+    }
 }

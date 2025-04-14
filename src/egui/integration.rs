@@ -1,4 +1,4 @@
-use std::{io::Error, sync::Arc};
+use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{BufferUsageFlags, MemoryPropertyFlags};
 use cgmath::{Vector2, Vector4};
@@ -18,6 +18,7 @@ pub struct Mesh {
     pub texture_id: u64,
 }
 
+#[derive(Debug)]
 pub struct MeshBuffers {
     pub vertex_buffer: VkBuffer,
     pub indices_buffer: VkBuffer,
@@ -26,9 +27,9 @@ pub struct MeshBuffers {
 impl MeshBuffers {
     pub fn new(
         mesh: Mesh,
-        allocator: Allocator,
-        queue: VkQueue,
-        command_pool: Arc<VkCommandPool>,
+        allocator: Arc<Allocator>,
+        queue: Arc<VkQueue>,
+        command_pool: &VkCommandPool,
     ) -> Result<MeshBuffers, Error> {
         let queue = vec![queue];
         let vertex_buffer = VkBuffer::create_buffer(
@@ -38,7 +39,7 @@ impl MeshBuffers {
             BufferUsageFlags::VERTEX_BUFFER,
             vk_mem::MemoryUsage::GpuOnly,
             MemoryPropertyFlags::DEVICE_LOCAL,
-            command_pool.clone(),
+            command_pool,
         )?;
         let indices_buffer = VkBuffer::create_buffer(
             &allocator,
@@ -47,7 +48,7 @@ impl MeshBuffers {
             BufferUsageFlags::VERTEX_BUFFER,
             vk_mem::MemoryUsage::GpuOnly,
             MemoryPropertyFlags::DEVICE_LOCAL,
-            command_pool.clone()
+            command_pool
         )?;
         Ok(Self { vertex_buffer, indices_buffer })
     }
