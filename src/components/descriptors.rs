@@ -1,11 +1,7 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-        DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
-        DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
-        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
-        DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ShaderStageFlags,
-        WriteDescriptorSet,
+        DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo, DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorSetLayoutCreateInfo, DescriptorType, Image, ImageLayout, ImageView, SamplerCreateInfo, ShaderStageFlags, WriteDescriptorSet
     };
 
 use super::{allocated_image::AllocatedImage, device::VkDevice};
@@ -70,10 +66,10 @@ impl DescriptorAllocator {
             pool: unsafe { device.create_descriptor_pool(&create_info, None).unwrap() },
         }
     }
-
-    pub fn get_compute_descriptors(
+    
+    pub fn get_descriptors(
         &self,
-        allocated_image: &AllocatedImage,
+        image_view: ImageView,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
     ) -> Result<DescriptorSetDetails, Error> {
@@ -85,15 +81,16 @@ impl DescriptorAllocator {
             shader_stage,
             DescriptorSetLayoutCreateFlags::empty(),
         );
+
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
         let descriptor_image_info = vec![DescriptorImageInfo::default()
             .image_layout(ImageLayout::GENERAL)
-            .image_view(allocated_image.image_view)];
+            .image_view(image_view)];
         let write_descriptor_set = WriteDescriptorSet::default()
             .dst_binding(0)
             .descriptor_count(1)
             .dst_set(descriptor_set)
-            .descriptor_type(DescriptorType::STORAGE_IMAGE)
+            .descriptor_type(descriptor_type)
             .image_info(&descriptor_image_info);
 
         unsafe {
@@ -106,7 +103,7 @@ impl DescriptorAllocator {
           layout
         })
     }
-
+    
     pub fn reset_descriptors(&self, device: Arc<VkDevice>) {
         unsafe {
             device

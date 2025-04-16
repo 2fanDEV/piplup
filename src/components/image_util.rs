@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 use ash::{
     vk::{
         AccessFlags, CommandBuffer, DependencyFlags, Extent2D, Extent3D, Filter, Format, Image, ImageAspectFlags, ImageBlit, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, Offset3D, PipelineStageFlags, SampleCountFlags, REMAINING_ARRAY_LAYERS, REMAINING_MIP_LEVELS
     },
     Device,
 };
+
+use super::device::VkDevice;
 
 pub fn image_create_info<'a>(
     format: Format,
@@ -38,7 +42,7 @@ pub fn image_view_create_info<'a>(
 }
 
 pub fn image_transition(
-    device: &Device,
+    device: Arc<VkDevice>,
     command_buffer: CommandBuffer,
     index: u32,
     image: Image,

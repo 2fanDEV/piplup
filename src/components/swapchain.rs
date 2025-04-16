@@ -25,7 +25,7 @@ pub struct KHRSwapchain {
     pub s_device: swapchain::Device,
     swapchain: SwapchainKHR,
     pub details: SwapchainSupportDetails,
-    device: Arc<VkDevice>,
+    pub device: Arc<VkDevice>,
     instance: Arc<VkInstance>,
 }
 
@@ -95,49 +95,6 @@ impl KHRSwapchain {
         })
     }
     
-    #[allow(deprecated)]
-    pub fn create_allocated_image(
-        &self,
-        vma_allocator: Arc<vk_mem::Allocator>,
-    ) -> Result<AllocatedImage, Error> {
-        let extent = Extent3D::default()
-            .width(self.details.window_sizes.width)
-            .height(self.details.window_sizes.height)
-            .depth(1);
-
-        let image_create_info = image_create_info(
-            Format::R16G16B16A16_SFLOAT,
-            ImageUsageFlags::TRANSFER_SRC
-                | ImageUsageFlags::TRANSFER_DST
-                | ImageUsageFlags::STORAGE
-                | ImageUsageFlags::COLOR_ATTACHMENT,
-            extent,
-        );
-
-        let mut allocation_create_info = vk_mem::AllocationCreateInfo::default();
-        allocation_create_info.required_flags = MemoryPropertyFlags::DEVICE_LOCAL;
-        allocation_create_info.usage = MemoryUsage::GpuOnly;
-
-        let (image, allocation) = unsafe {
-            vma_allocator.create_image(&image_create_info, &allocation_create_info).unwrap()
-        };
-
-        let image_view_create_info =
-            image_view_create_info(image, Format::R16G16B16A16_SFLOAT, ImageAspectFlags::COLOR);
-        let image_view = unsafe {
-            self.device
-                .create_image_view(&image_view_create_info, None)
-                .unwrap()
-        };
-        let allocated_image = AllocatedImage::new(
-            image,
-            image_view,
-            allocation,
-            extent,
-            Format::R16G16B16A16_SFLOAT,
-        );
-        Ok(allocated_image)
-    }
 
     pub fn create_image_details(&self) -> Result<Vec<ImageDetails>, Error> {
         unsafe {
@@ -167,7 +124,6 @@ impl KHRSwapchain {
                         .device
                         .create_image_view(&image_view_create_info, None)
                         .unwrap();
-
                     ImageDetails { image, image_view }
                 })
                 .collect::<Vec<ImageDetails>>();

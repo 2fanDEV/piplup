@@ -1,20 +1,23 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::{
-    BlendFactor, BlendOp, ComputePipelineCreateInfo, CullModeFlags,
-    DescriptorSetLayout, DynamicState, Extent2D, FrontFace, GraphicsPipelineCreateInfo, LogicOp,
-    Offset2D, Pipeline, PipelineCache, PipelineColorBlendAttachmentState,
-    PipelineColorBlendStateCreateInfo, PipelineDynamicStateCreateInfo,
-    PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
-    PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
-    PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
-    PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D,
-    SampleCountFlags, ShaderStageFlags, VertexInputAttributeDescription,
-    VertexInputBindingDescription, Viewport,
-};
 use ash::vk::ColorComponentFlags;
+use ash::vk::{
+    BlendFactor, BlendOp, ComputePipelineCreateInfo, CullModeFlags, DescriptorSetLayout,
+    DynamicState, Extent2D, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Offset2D, Pipeline,
+    PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
+    PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
+    PipelineLayoutCreateFlags, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo,
+    PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo,
+    PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode,
+    PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
+    VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
+};
+use cgmath::Matrix4;
+use log::debug;
 
-use super::{device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module};
+use super::{
+    device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,
+};
 
 #[derive(Debug, Clone)]
 #[allow(unused)]
@@ -52,6 +55,16 @@ impl ShaderInformation {
             vertex_attribute_description: Vertex2D::get_attribute_description(),
         }
     }
+
+    pub fn fragment_2d_information(shader_file_path: String) -> ShaderInformation {
+        Self {
+            shader_file_path,
+            stages: ShaderStageFlags::FRAGMENT,
+            entry_point: String::from("main"),
+            vertex_binding_description: Vertex2D::get_binding_description(),
+            vertex_attribute_description: Vertex2D::get_attribute_description(),
+        }
+    }
 }
 
 pub enum PipelineType {
@@ -62,9 +75,9 @@ pub enum PipelineType {
 #[allow(unused)]
 pub struct VkPipeline {
     pipeline: Pipeline,
-    pipeline_layout: PipelineLayout,
+    pub pipeline_layout: PipelineLayout,
     device: Arc<VkDevice>,
-    pipeline_type: PipelineType,
+    pub pipeline_type: PipelineType,
 }
 
 impl Deref for VkPipeline {
@@ -108,17 +121,18 @@ impl VkPipeline {
         Ok(pipelines)
     }
 
-    pub fn graphics_pipelines(
+    pub fn egui_pipeline(
         device: Arc<VkDevice>,
         shader_information: &[ShaderInformation],
+        layouts: &[DescriptorSetLayout],
         extent: &Extent2D,
         render_pass: Arc<VkRenderPass>,
     ) -> Result<Vec<VkPipeline>, Error> {
         let dynamic_states_create_info =
             dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
         let mut pipeline_stage_create_info: Vec<PipelineShaderStageCreateInfo> = Vec::new();
-        let mut vertex_binding_description: Vec<VertexInputBindingDescription> = Vec::new();
-        let mut vertex_attribute_description: Vec<VertexInputAttributeDescription> = Vec::new();
+        let vertex_binding_description: Vec<VertexInputBindingDescription> = Vertex2D::get_binding_description();
+        let vertex_attribute_description: Vec<VertexInputAttributeDescription> = Vertex2D::get_attribute_description();
         for information in shader_information {
             let shader_module = load_shader_module(&information.shader_file_path, &device)?;
             pipeline_stage_create_info.push(
@@ -127,19 +141,7 @@ impl VkPipeline {
                     .module(shader_module)
                     .stage(information.stages),
             );
-            information
-                .vertex_binding_description
-                .clone()
-                .into_iter()
-                .for_each(|binding_description| {
-                    vertex_binding_description.push(binding_description);
-                });
-            information
-                .vertex_attribute_description
-                .clone()
-                .into_iter()
-                .for_each(|binding_desc| vertex_attribute_description.push(binding_desc));
-        }
+        }       
         let vertex_input_state = PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&vertex_binding_description)
             .vertex_attribute_descriptions(&vertex_attribute_description);
@@ -152,7 +154,13 @@ impl VkPipeline {
         let rasterizer_info = create_rasterizer_state();
         let multisamping_info = create_multisampling_state();
         let color_blending_attachments = [create_color_blending_attachment_state()];
-        let pipeline_layout_create_info = PipelineLayoutCreateInfo::default();
+
+        let push_constant_ranges = vec![PushConstantRange::default()
+            .stage_flags(ShaderStageFlags::VERTEX)
+            .size(size_of::<Matrix4<f32>>() as u32)];
+        let pipeline_layout_create_info =
+            PipelineLayoutCreateInfo::default().push_constant_ranges(&push_constant_ranges)
+            .set_layouts(layouts);
         let pipeline_layout = unsafe {
             device
                 .create_pipeline_layout(&pipeline_layout_create_info, None)

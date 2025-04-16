@@ -8,12 +8,12 @@ use cgmath::{Vector2, Vector4};
 #[derive(Debug, Clone)]
 pub struct Vertex2D {
     pos: Vector2<f32>,
-    color: Vector4<f32>,
     texture_coords: Vector2<f32>,
+    color: Vector4<u8>,
 }
 
 impl Vertex2D {
-    pub fn new(pos: Vector2<f32>, color: Vector4<f32>, texture_coords: Vector2<f32>) -> Self {
+    pub fn new(pos: Vector2<f32>, color: Vector4<u8>, texture_coords: Vector2<f32>) -> Self {
         Vertex2D {
             pos,
             color,
@@ -34,7 +34,7 @@ impl Vertex2D {
         attribute_descriptons[0] = attribute_descriptons[0]
             .binding(0)
             .location(0)
-            .format(Format::R32G32B32_SFLOAT)
+            .format(Format::R32G32_SFLOAT)
             .offset(offset_of!(Vertex2D, pos) as u32);
 
         attribute_descriptons[1] = attribute_descriptons[1]
@@ -46,7 +46,7 @@ impl Vertex2D {
         attribute_descriptons[2] = attribute_descriptons[2]
             .binding(0)
             .location(2)
-            .format(Format::R32G32B32_SFLOAT)
+            .format(Format::R8G8B8A8_UNORM)
             .offset(offset_of!(Vertex2D, color) as u32);
         attribute_descriptons.to_vec()
     }

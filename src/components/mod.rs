@@ -13,5 +13,7 @@ pub mod render_pass;
 pub mod geom; 
 pub mod frame_data;
 pub mod buffers;
+pub mod memory_allocator;
 pub mod command_buffers;
-mod image_util;
+pub mod image_util;
+pub mod sampler;

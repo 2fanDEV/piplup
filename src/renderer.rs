@@ -4,11 +4,13 @@ use ash::{
     ext::debug_utils,
     vk::{
         ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Fence, Framebuffer,
-        Offset2D, PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo,
-        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents,
+        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence,
+        ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR,
+        Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, Viewport,
     },
 };
+use cgmath::Matrix4;
 use log::debug;
 use vk_mem::{Allocator, AllocatorCreateInfo};
 use winit::window::Window;
@@ -19,10 +21,11 @@ use crate::{
     components::{
         allocated_image::AllocatedImage,
         buffers::VkFrameBuffer,
-        command_buffers::{self, VkCommandPool},
+        command_buffers::VkCommandPool,
         descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
         device::{self, VkDevice},
         frame_data::FrameData,
+        image_util,
         instance::{self, VkInstance},
         pipeline::{ShaderInformation, VkPipeline},
         queue::{QueueType, VkQueue},
@@ -46,15 +49,20 @@ pub struct Renderer {
     render_pass: Arc<VkRenderPass>,
     vk_mem_allocator: Arc<Allocator>,
     graphics_pipeline: Vec<VkPipeline>,
-    descriptor_allocator: DescriptorAllocator,
+    compute_descriptor_allocator: DescriptorAllocator,
     compute_descriptor_set_details: DescriptorSetDetails,
+    egui_descriptor_allocator: DescriptorAllocator,
+    egui_descriptor_set_details: DescriptorSetDetails,
     allocated_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
+    viewports: Vec<Viewport>,
+    scissors: Vec<Rect2D>,
     framebuffers: Vec<VkFrameBuffer>,
     frame_data: Vec<FrameData>,
     frame_idx: usize,
     render_area: Rect2D,
-    integration: EguiIntegration,
+    extent: Extent2D,
+    pub integration: EguiIntegration,
     command_pool: VkCommandPool,
 }
 
@@ -101,6 +109,7 @@ impl Renderer {
             [graphics_queue.clone(), presentation_queue.clone()],
         )?);
 
+        let extent = swapchain.details.clone().choose_swapchain_extent(window);
         let vk_mem_allocator = Arc::new(unsafe {
             vk_mem::Allocator::new(AllocatorCreateInfo::new(
                 &vk_instance,
@@ -111,16 +120,31 @@ impl Renderer {
         });
         let image_details = swapchain.create_image_details()?;
         let allocated_image = swapchain.create_allocated_image(vk_mem_allocator.clone())?;
-        let descriptor_allocator = DescriptorAllocator::new(
+        let compute_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             10,
             vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
         );
-        let compute_descriptor_set_details = descriptor_allocator.get_compute_descriptors(
-            &allocated_image,
+        let compute_descriptor_set_details = compute_descriptor_allocator.get_descriptors(
+            &e,
             ShaderStageFlags::COMPUTE,
             DescriptorType::STORAGE_IMAGE,
         )?;
+
+        let egui_descriptor_allocator = DescriptorAllocator::new(
+            vk_device.clone(),
+            10,
+            vec![PoolSizeRatio::new(
+                DescriptorType::COMBINED_IMAGE_SAMPLER,
+                1.0,
+            )],
+        );
+        let egui_descriptor_set_details = egui_descriptor_allocator.get_descriptors(
+            image_details[0],
+            ShaderStageFlags::FRAGMENT,
+            DescriptorType::COMBINED_IMAGE_SAMPLER,
+        )?;
+
         let compute_pipelines = VkPipeline::compute_pipelines(
             vk_device.clone(),
             &[compute_descriptor_set_details.layout],
@@ -130,18 +154,24 @@ impl Renderer {
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
         )?);
-        let graphics_pipeline = VkPipeline::graphics_pipelines(
+        let graphics_pipeline = VkPipeline::egui_pipeline(
             vk_device.clone(),
-            &[ShaderInformation::vertex_2d_information(
-                "shaders/2D_vertex_shader.spv".to_string(),
-            )],
-            &swapchain.details.clone().choose_swapchain_extent(&window),
+            &[
+                ShaderInformation::vertex_2d_information(
+                    "shaders/2D_vertex_shader.spv".to_string(),
+                ),
+                ShaderInformation::fragment_2d_information(
+                    "shaders/2D_fragment_shader.spv".to_string(),
+                ),
+            ],
+            &[egui_descriptor_set_details.layout],
+            &extent,
             render_pass.clone(),
         )?;
         let framebuffers = VkFrameBuffer::create_framebuffers(
             vk_device.clone(),
             render_pass.clone(),
-            swapchain.details.clone().choose_swapchain_extent(window),
+            extent,
             &image_details,
         );
         let mut frame_data: Vec<FrameData> = Vec::new();
@@ -152,7 +182,18 @@ impl Renderer {
         let integration = EguiIntegration::new(window);
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
-            .extent(swapchain.details.clone().choose_swapchain_extent(window));
+            .extent(extent.clone());
+
+        let viewports = vec![Viewport::default()
+            .x(0.0)
+            .y(0.0)
+            .width(extent.width as f32)
+            .height(extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0)];
+        let scissors = vec![Rect2D::default()
+            .offset(Offset2D::default().x(0).y(0))
+            .extent(extent)];
         Ok(Self {
             instance: vk_instance,
             debug_instance,
@@ -163,7 +204,9 @@ impl Renderer {
             swapchain,
             compute_pipelines,
             compute_descriptor_set_details,
-            descriptor_allocator,
+            compute_descriptor_allocator,
+            egui_descriptor_allocator,
+            egui_descriptor_set_details,
             graphics_pipeline,
             render_pass,
             allocated_image,
@@ -175,6 +218,9 @@ impl Renderer {
             render_area,
             integration,
             command_pool,
+            viewports,
+            scissors,
+            extent,
         })
     }
 
@@ -216,6 +262,9 @@ impl Renderer {
                             if ui.button("Click me").clicked() {
                                 debug!("CLICKED");
                             }
+                            if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                                debug!("WHAT THE HEEEEELL");
+                            }
                         });
                     },
                     window,
@@ -232,11 +281,22 @@ impl Renderer {
                 })
                 .collect::<Vec<_>>();
 
-            // self.record_command_buffer(frame_data.command_buffer, swapchain_image_index);
+            self.record_command_buffer(
+                frame_data,
+                &swapchain_image_index,
+                mesh_buffers.get(0).unwrap(),
+            );
+
+            let stage_masks = vec![PipelineStageFlags::VERTEX_SHADER];
+            self.submit_queue(**self.graphics_queue, frame_data, &stage_masks);
+            let image_indices = vec![swapchain_image_index.index];
+            self.present_queue(
+                **self.graphics_queue,
+                &frame_data.render_semaphore,
+                &image_indices,
+            );
         }
     }
-
-    fn render_mesh(&self, command_buffer: CommandBuffer) {}
 
     fn immediate_submit<F: FnOnce(&Renderer, CommandBuffer)>(&self, function: F) {
         let command = self.command_pool.single_time_command().unwrap();
@@ -245,8 +305,134 @@ impl Renderer {
             .end_single_time_command(self.graphics_queue.clone(), command);
     }
 
-    fn record_command_buffer(&self, frame_data: &FrameData, image_index: ImageIndex) {
-        unsafe {}
+    fn record_command_buffer(
+        &self,
+        frame_data: &FrameData,
+        image_index: &ImageIndex,
+        mesh_buffers: &MeshBuffers,
+    ) {
+        unsafe {
+            let begin_info =
+                CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+            self.device
+                .begin_command_buffer(frame_data.command_buffer, &begin_info)
+                .unwrap();
+
+            let clear_value = vec![ClearValue {
+                color: ash::vk::ClearColorValue {
+                    float32: [0.0, 0.0, 1.0, 1.0],
+                },
+            }];
+            self.device.cmd_bind_pipeline(
+                frame_data.command_buffer,
+                PipelineBindPoint::GRAPHICS,
+                *self.graphics_pipeline[0],
+            );
+            let render_pass_begin_info = RenderPassBeginInfo::default()
+                .render_pass(**self.render_pass)
+                .framebuffer(*self.framebuffers[image_index.index as usize])
+                .clear_values(&clear_value)
+                .render_area(self.render_area);
+
+            self.device.cmd_begin_render_pass(
+                frame_data.command_buffer,
+                &render_pass_begin_info,
+                SubpassContents::INLINE,
+            );
+            self.device
+                .cmd_set_viewport(frame_data.command_buffer, 0, &self.viewports);
+            self.device
+                .cmd_set_scissor(frame_data.command_buffer, 0, &self.scissors);
+            let vertex_buffer = vec![mesh_buffers.vertex_buffer.buffer];
+            self.device
+                .cmd_bind_vertex_buffers(frame_data.command_buffer, 0, &vertex_buffer, &[0]);
+            self.device.cmd_bind_index_buffer(
+                frame_data.command_buffer,
+                mesh_buffers.indices_buffer.buffer,
+                0,
+                IndexType::UINT32,
+            );
+
+            let extent = self.extent;
+            let width = extent.width as f32;
+            let height = extent.height as f32;
+
+            // Create the orthographic projection matrix
+            // Maps x from [0, width]   to [-1, 1]
+            // Maps y from [0, height]  to [-1, 1] (adjust if Vulkan Y needs flipping relative to egui)
+            // Common approach (assuming viewport handles Y inversion if needed):
+            let sx = 2.0 / width;
+            let sy = 2.0 / height; // Use -2.0 / height if you need to flip Y here
+            let tx = -1.0;
+            let ty = -1.0; // Use 1.0 if sy is negative (flipping Y)
+
+            let clip_matrix = Matrix4::new(
+                sx, 0.0, 0.0, 0.0, // Column 1
+                0.0, sy, 0.0, 0.0, // Column 2
+                0.0, 0.0, 1.0,
+                0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
+                tx, ty, 0.0, 1.0, // Column 4
+            );
+
+            let matrix_array: &[[f32; 4]; 4] = clip_matrix.as_ref();
+
+            // Get a pointer to the first element of the array
+            let matrix_ptr: *const f32 = matrix_array.as_ptr() as *const f32;
+
+            // Convert the pointer to a byte slice
+            let matrix_bytes: &[u8] =
+                std::slice::from_raw_parts(matrix_ptr as *const u8, size_of::<Matrix4<f32>>());
+
+            self.device.cmd_push_constants(
+                frame_data.command_buffer,
+                self.graphics_pipeline[0].pipeline_layout,
+                ShaderStageFlags::VERTEX,
+                0,
+                matrix_bytes,
+            );
+
+            image_util::image_transition(
+                self.device.clone(),
+                frame_data.command_buffer,
+                self.graphics_queue.queue_family_index,
+                self.image_details[image_index.index as usize].image,
+                ImageLayout::UNDEFINED,
+                ImageLayout::GENERAL,
+            );
+
+            self.device.cmd_bind_descriptor_sets(
+                frame_data.command_buffer,
+                PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline[0].pipeline_layout,
+                0,
+                &[*self.egui_descriptor_set_details],
+                &[],
+            );
+
+            image_util::image_transition(
+                self.device.clone(),
+                frame_data.command_buffer,
+                self.graphics_queue.queue_family_index,
+                self.image_details[image_index.index as usize].image,
+                ImageLayout::GENERAL,
+                ImageLayout::PRESENT_SRC_KHR,
+            );
+
+            self.device.cmd_draw_indexed(
+                frame_data.command_buffer,
+                mesh_buffers.indices_buffer.elements.len() as u32,
+                1,
+                0,
+                0,
+                0,
+            );
+            self.device.cmd_end_render_pass(frame_data.command_buffer);
+
+            self.device
+                .end_command_buffer(frame_data.command_buffer)
+                .unwrap();
+        }
     }
 
     fn submit_queue(
@@ -260,7 +446,7 @@ impl Renderer {
             .command_buffers(&command_buffers)
             .wait_dst_stage_mask(stage_masks)
             .signal_semaphores(&frame_data.render_semaphore)
-            .signal_semaphores(&frame_data.swapchain_semaphore)];
+            .wait_semaphores(&frame_data.swapchain_semaphore)];
         unsafe {
             self.device
                 .queue_submit(queue, &submit_info, frame_data.render_fence[0])
@@ -268,8 +454,12 @@ impl Renderer {
         };
     }
 
-    fn present_queue(&self, queue: Queue, wait_semaphores: &[Semaphore]) {
-        let present_info = PresentInfoKHR::default().wait_semaphores(wait_semaphores);
+    fn present_queue(&self, queue: Queue, wait_semaphores: &[Semaphore], image_indices: &[u32]) {
+        let swapchains = vec![**self.swapchain];
+        let present_info = PresentInfoKHR::default()
+            .wait_semaphores(wait_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(image_indices);
         unsafe {
             self.swapchain
                 .s_device
