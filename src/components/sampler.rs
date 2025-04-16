@@ -7,6 +7,7 @@ use ash::vk::{
 
 use super::device::VkDevice;
 
+#[derive(Clone)]
 pub struct VkSampler {
     sampler: Sampler,
     device: Arc<VkDevice>,

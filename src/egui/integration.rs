@@ -11,7 +11,7 @@ use vk_mem::Allocator;
 use winit::{event::WindowEvent, window::{self, Theme, Window}};
 
 use crate::components::{
-    buffers::VkBuffer, command_buffers::VkCommandPool, geom::vertex::Vertex2D, queue::VkQueue,
+    buffers::VkBuffer, command_buffers::VkCommandPool, geom::vertex::Vertex2D, memory_allocator::MemoryAllocator, queue::VkQueue
 };
 
 pub struct Mesh {
@@ -22,20 +22,21 @@ pub struct Mesh {
 
 #[derive(Debug)]
 pub struct MeshBuffers {
-    pub vertex_buffer: VkBuffer<Vertex2D>,
-    pub indices_buffer: VkBuffer<u32>,
+    pub vertex_buffer: VkBuffer,
+    pub indices_buffer: VkBuffer,
+    pub indices: Vec<u32>,
+    pub vertices: Vec<Vertex2D>
 }
 
 impl MeshBuffers {
     pub fn new(
         mesh: Mesh,
-        allocator: Arc<Allocator>,
+        allocator: &MemoryAllocator,
         queue: Arc<VkQueue>,
         command_pool: &VkCommandPool,
     ) -> Result<MeshBuffers, Error> {
         let queue = vec![queue];
-        let vertex_buffer = VkBuffer::create_buffer(
-            &allocator,
+        let vertex_buffer = allocator.create_buffer(
             &mesh.vertices,
             &queue,
             BufferUsageFlags::VERTEX_BUFFER,
@@ -43,8 +44,7 @@ impl MeshBuffers {
             MemoryPropertyFlags::DEVICE_LOCAL,
             command_pool,
         )?;
-        let indices_buffer = VkBuffer::create_buffer(
-            &allocator,
+        let indices_buffer = allocator.create_buffer(
             &mesh.indices,
             &queue,
             BufferUsageFlags::INDEX_BUFFER,
@@ -55,6 +55,8 @@ impl MeshBuffers {
         Ok(Self {
             vertex_buffer,
             indices_buffer,
+            vertices: mesh.vertices,
+            indices: mesh.indices
         })
     }
 
@@ -87,7 +89,7 @@ impl EguiIntegration {
 
     pub fn run(&mut self, run_ui: impl FnMut(&Context), window: &Window) -> Vec<Mesh> {
         let mut raw_input = self.state.take_egui_input(window);
-     //   let window_size = window.inner_size();
+        let window_size = window.inner_size();
       /*  let egui_rect = Rect::from_min_size(
             Pos2::new(0.0, 0.0),
             Vec2::new((window_size.width - 100) as f32, (window_size.height - 100) as f32),
@@ -110,9 +112,7 @@ impl EguiIntegration {
             println!("Error: ViewportId FFFF was not found in the raw_input.viewports hashmap.");
         }
 */
-
         let output = self.state.egui_ctx().run(raw_input.clone(), run_ui);
-
         self.convert(output)
     }
 

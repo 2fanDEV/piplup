@@ -2,9 +2,9 @@ use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
     BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageUsageFlags,
-    MemoryPropertyFlags, SharingMode,
+    MemoryPropertyFlags, SharingMode, SwapchainKHR,
 };
-use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, MemoryUsage};
+use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage};
 
 use super::{
     allocated_image::AllocatedImage, buffers::VkBuffer, command_buffers::VkCommandPool, image_util::{image_create_info, image_view_create_info}, queue::VkQueue, swapchain::KHRSwapchain
@@ -23,8 +23,15 @@ impl Deref for MemoryAllocator {
 }
 
 impl MemoryAllocator {
+
+    pub fn new(allocator_create_info: AllocatorCreateInfo) -> Self {
+        Self{
+         allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() }
+        }
+    }
+
     #[allow(deprecated)]
-    fn create_image(&self, swapchain: KHRSwapchain) -> Result<AllocatedImage, Error> {
+    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>) -> Result<AllocatedImage, Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
             .height(swapchain.details.window_sizes.height)
@@ -67,6 +74,10 @@ impl MemoryAllocator {
         );
         Ok(allocated_image)
     }
+
+/*    pub fn create_image_with_uploaded_elements<T>(swapchain: Arc<KHRSwapchain>, elements: &[T]) -> Result<AllocatedImage, Error> {
+
+    } */
 
     pub fn create_buffer<T>(
         &self,

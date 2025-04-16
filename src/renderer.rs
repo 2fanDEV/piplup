@@ -3,11 +3,7 @@ use std::{io::Error, ops::Add, sync::Arc};
 use ash::{
     ext::debug_utils,
     vk::{
-        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence,
-        ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR,
-        Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, Viewport,
+        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence, ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Sampler, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
     },
 };
 use cgmath::Matrix4;
@@ -19,19 +15,7 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage,
-        buffers::VkFrameBuffer,
-        command_buffers::VkCommandPool,
-        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
-        device::{self, VkDevice},
-        frame_data::FrameData,
-        image_util,
-        instance::{self, VkInstance},
-        pipeline::{ShaderInformation, VkPipeline},
-        queue::{QueueType, VkQueue},
-        render_pass::VkRenderPass,
-        surface,
-        swapchain::{ImageDetails, KHRSwapchain},
+        allocated_image::AllocatedImage, buffers::VkFrameBuffer, command_buffers::VkCommandPool, descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio}, device::{self, VkDevice}, frame_data::FrameData, image_util, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{ShaderInformation, VkPipeline}, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, sampler::VkSampler, surface, swapchain::{ImageDetails, KHRSwapchain}
     },
     egui::integration::{EguiIntegration, MeshBuffers},
 };
@@ -47,10 +31,11 @@ pub struct Renderer {
     swapchain: Arc<KHRSwapchain>,
     compute_pipelines: Vec<VkPipeline>,
     render_pass: Arc<VkRenderPass>,
-    vk_mem_allocator: Arc<Allocator>,
+    memory_allocator: Arc<MemoryAllocator>,
     graphics_pipeline: Vec<VkPipeline>,
     compute_descriptor_allocator: DescriptorAllocator,
     compute_descriptor_set_details: DescriptorSetDetails,
+    egui_sampler: VkSampler,
     egui_descriptor_allocator: DescriptorAllocator,
     egui_descriptor_set_details: DescriptorSetDetails,
     allocated_image: AllocatedImage,
@@ -110,26 +95,27 @@ impl Renderer {
         )?);
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
-        let vk_mem_allocator = Arc::new(unsafe {
-            vk_mem::Allocator::new(AllocatorCreateInfo::new(
+        let memory_allocator = Arc::new( MemoryAllocator::new(AllocatorCreateInfo::new(
                 &vk_instance,
                 &vk_device,
                 vk_device.physical_device,
-            ))
-            .unwrap()
-        });
+            )));
         let image_details = swapchain.create_image_details()?;
-        let allocated_image = swapchain.create_allocated_image(vk_mem_allocator.clone())?;
+        let allocated_image = memory_allocator.create_image(swapchain.clone())?;
+        let fonts_image = memory_allocator.create_image(swapchain.clone())?;
         let compute_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             10,
             vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
         );
         let compute_descriptor_set_details = compute_descriptor_allocator.get_descriptors(
-            &e,
+            allocated_image.image_view,
             ShaderStageFlags::COMPUTE,
             DescriptorType::STORAGE_IMAGE,
+            None
         )?;
+
+        let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
 
         let egui_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
@@ -140,9 +126,10 @@ impl Renderer {
             )],
         );
         let egui_descriptor_set_details = egui_descriptor_allocator.get_descriptors(
-            image_details[0],
+            fonts_image.image_view,
             ShaderStageFlags::FRAGMENT,
             DescriptorType::COMBINED_IMAGE_SAMPLER,
+            Some(egui_sampler.clone())
         )?;
 
         let compute_pipelines = VkPipeline::compute_pipelines(
@@ -212,7 +199,8 @@ impl Renderer {
             allocated_image,
             framebuffers,
             image_details,
-            vk_mem_allocator,
+            egui_sampler,
+            memory_allocator,
             frame_data,
             frame_idx: 0,
             render_area,
@@ -273,7 +261,7 @@ impl Renderer {
                 .map(|mesh| {
                     MeshBuffers::new(
                         mesh,
-                        self.vk_mem_allocator.clone(),
+                        &self.memory_allocator,
                         self.graphics_queue.clone(),
                         &self.command_pool,
                     )
@@ -370,8 +358,7 @@ impl Renderer {
             let clip_matrix = Matrix4::new(
                 sx, 0.0, 0.0, 0.0, // Column 1
                 0.0, sy, 0.0, 0.0, // Column 2
-                0.0, 0.0, 1.0,
-                0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
+                0.0, 0.0, 1.0, 0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
                 tx, ty, 0.0, 1.0, // Column 4
             );
 
@@ -421,7 +408,7 @@ impl Renderer {
 
             self.device.cmd_draw_indexed(
                 frame_data.command_buffer,
-                mesh_buffers.indices_buffer.elements.len() as u32,
+                mesh_buffers.indices.len() as u32,
                 1,
                 0,
                 0,

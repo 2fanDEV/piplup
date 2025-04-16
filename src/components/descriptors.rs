@@ -1,14 +1,18 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-        DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo, DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorSetLayoutCreateInfo, DescriptorType, Image, ImageLayout, ImageView, SamplerCreateInfo, ShaderStageFlags, WriteDescriptorSet
-    };
+    DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
+    DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
+    DescriptorSetLayoutCreateInfo, DescriptorType, Image, ImageLayout, ImageView, Sampler,
+    SamplerCreateInfo, ShaderStageFlags, WriteDescriptorSet,
+};
 
-use super::{allocated_image::AllocatedImage, device::VkDevice};
+use super::{allocated_image::AllocatedImage, device::VkDevice, sampler::VkSampler};
 
 pub struct DescriptorSetDetails {
     descriptor_set: DescriptorSet,
-    pub layout: DescriptorSetLayout
+    pub layout: DescriptorSetLayout,
 }
 
 impl Deref for DescriptorSetDetails {
@@ -37,7 +41,7 @@ impl PoolSizeRatio {
     pub fn new(descriptor_type: DescriptorType, ratio: f32) -> PoolSizeRatio {
         Self {
             descriptor_type,
-            ratio
+            ratio,
         }
     }
 }
@@ -66,14 +70,14 @@ impl DescriptorAllocator {
             pool: unsafe { device.create_descriptor_pool(&create_info, None).unwrap() },
         }
     }
-    
+
     pub fn get_descriptors(
         &self,
         image_view: ImageView,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
+        sampler: Option<VkSampler>,
     ) -> Result<DescriptorSetDetails, Error> {
-
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
         descriptor_layout_builder.add_binding(0, descriptor_type);
         let layout = descriptor_layout_builder.build(
@@ -83,15 +87,21 @@ impl DescriptorAllocator {
         );
 
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
-        let descriptor_image_info = vec![DescriptorImageInfo::default()
+        let mut descriptor_image_infos = vec![];
+        let mut descriptor_info = DescriptorImageInfo::default()
             .image_layout(ImageLayout::GENERAL)
-            .image_view(image_view)];
+            .image_view(image_view);
+        if sampler.is_some() {
+            descriptor_info = descriptor_info.sampler(*sampler.unwrap());
+        }
+        descriptor_image_infos.push(descriptor_info);
+
         let write_descriptor_set = WriteDescriptorSet::default()
             .dst_binding(0)
             .descriptor_count(1)
             .dst_set(descriptor_set)
             .descriptor_type(descriptor_type)
-            .image_info(&descriptor_image_info);
+            .image_info(&descriptor_image_infos);
 
         unsafe {
             self.device
@@ -99,11 +109,11 @@ impl DescriptorAllocator {
         };
 
         Ok(DescriptorSetDetails {
-          descriptor_set, 
-          layout
+            descriptor_set,
+            layout,
         })
     }
-    
+
     pub fn reset_descriptors(&self, device: Arc<VkDevice>) {
         unsafe {
             device
@@ -116,11 +126,7 @@ impl DescriptorAllocator {
         unsafe { device.destroy_descriptor_pool(self.pool, None) }
     }
 
-    fn allocate(
-        &self,
-        device: Arc<VkDevice>,
-        layouts: &[DescriptorSetLayout],
-    ) -> DescriptorSet {
+    fn allocate(&self, device: Arc<VkDevice>, layouts: &[DescriptorSetLayout]) -> DescriptorSet {
         let mut allocate_info = DescriptorSetAllocateInfo::default()
             .descriptor_pool(self.pool)
             .set_layouts(layouts);
