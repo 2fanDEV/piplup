@@ -1,17 +1,20 @@
-use std::{collections::HashMap, env::join_paths, io::Error, ops::Deref, sync::Arc};
+use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::{BufferUsageFlags, MemoryPropertyFlags, Viewport};
+use ash::vk::{BufferUsageFlags, MemoryPropertyFlags};
 use cgmath::{Vector2, Vector4};
 use egui::{
-    epaint::Primitive, ClippedPrimitive, Context, FullOutput, Id, Pos2, RawInput, Rect, Vec2,
-    ViewportId, ViewportInfo,
+    epaint::{Primitive, TextureAtlas}, text::Fonts, ClippedPrimitive, Context, FullOutput, TexturesDelta, ViewportId
 };
 use egui_winit::{EventResponse, State};
-use vk_mem::Allocator;
-use winit::{event::WindowEvent, window::{self, Theme, Window}};
+use log::debug;
+use winit::{
+    event::WindowEvent,
+    window::{Theme, Window},
+};
 
 use crate::components::{
-    buffers::VkBuffer, command_buffers::VkCommandPool, geom::vertex::Vertex2D, memory_allocator::MemoryAllocator, queue::VkQueue
+    buffers::VkBuffer, command_buffers::VkCommandPool, geom::vertex::Vertex2D,
+    memory_allocator::MemoryAllocator, queue::VkQueue,
 };
 
 pub struct Mesh {
@@ -25,10 +28,11 @@ pub struct MeshBuffers {
     pub vertex_buffer: VkBuffer,
     pub indices_buffer: VkBuffer,
     pub indices: Vec<u32>,
-    pub vertices: Vec<Vertex2D>
+    pub vertices: Vec<Vertex2D>,
 }
 
 impl MeshBuffers {
+    #[allow(deprecated)]
     pub fn new(
         mesh: Mesh,
         allocator: &MemoryAllocator,
@@ -56,17 +60,14 @@ impl MeshBuffers {
             vertex_buffer,
             indices_buffer,
             vertices: mesh.vertices,
-            indices: mesh.indices
+            indices: mesh.indices,
         })
-    }
-
-    pub fn remap_contents(mesh: Mesh) {
-        
     }
 }
 
 pub struct EguiIntegration {
-    state: State
+    state: State,
+    has_run: bool,
 }
 
 impl EguiIntegration {
@@ -75,48 +76,37 @@ impl EguiIntegration {
             Context::default(),
             ViewportId::ROOT,
             window,
-            Some(window.scale_factor() as f32),
+            Some(2.0 * window.scale_factor() as f32),
             Some(Theme::Dark),
-            Some(1024 * 2),
+            Some(1024 * 4),
         );
 
-        Self { state }
+        Self { state, has_run: false }
     }
 
     pub fn input(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
         self.state.on_window_event(window, event)
     }
 
-    pub fn run(&mut self, run_ui: impl FnMut(&Context), window: &Window) -> Vec<Mesh> {
-        let mut raw_input = self.state.take_egui_input(window);
-        let window_size = window.inner_size();
-      /*  let egui_rect = Rect::from_min_size(
-            Pos2::new(0.0, 0.0),
-            Vec2::new((window_size.width - 100) as f32, (window_size.height - 100) as f32),
-        );
-
-        raw_input.screen_rect = Some(egui_rect);
-
-        // Create or update the viewport info:
-        let viewport_info = ViewportInfo {
-            inner_rect: Some(egui_rect),
-            outer_rect: Some(egui_rect),
-            ..Default::default() // Fill in other fields with defaults
-        };
-
-        if let Some(viewport) = raw_input.viewports.get_mut(&raw_input.viewport_id) {
-            viewport.inner_rect = Some(egui_rect);
-            viewport.outer_rect = Some(egui_rect);
-        } else {
-            //handle the error, as the viewport id should exist.
-            println!("Error: ViewportId FFFF was not found in the raw_input.viewports hashmap.");
-        }
-*/
+    pub fn run(&mut self, run_ui: impl FnMut(&Context), window: &Window) -> FullOutput {
+        let raw_input = self.state.take_egui_input(window);
         let output = self.state.egui_ctx().run(raw_input.clone(), run_ui);
-        self.convert(output)
+        self.has_run = true;
+        self.state
+            .handle_platform_output(window, output.platform_output.clone());
+        output
     }
 
-    fn convert(&self, output: FullOutput) -> Vec<Mesh> {
+    pub fn get_fonts(&mut self) -> Option<Fonts> {
+        if self.has_run {   
+            Some(self.state.egui_ctx().fonts(|reader| reader.clone()))
+        } else {
+            None
+        }
+    }
+    
+    #[allow(unused)]
+    pub fn convert(&mut self, output: FullOutput) -> Vec<Mesh> {
         let clipped_primitives = self
             .state
             .egui_ctx()

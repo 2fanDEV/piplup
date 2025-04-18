@@ -4,11 +4,10 @@ use ash::vk::{
     DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
     DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
     DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
-    DescriptorSetLayoutCreateInfo, DescriptorType, Image, ImageLayout, ImageView, Sampler,
-    SamplerCreateInfo, ShaderStageFlags, WriteDescriptorSet,
+    DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ImageView, ShaderStageFlags, WriteDescriptorSet,
 };
 
-use super::{allocated_image::AllocatedImage, device::VkDevice, sampler::VkSampler};
+use super::{device::VkDevice, sampler::VkSampler};
 
 pub struct DescriptorSetDetails {
     descriptor_set: DescriptorSet,

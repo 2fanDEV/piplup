@@ -1,21 +1,43 @@
-use std::{io::Error, ops::Add, sync::Arc};
+use std::{
+    io::Error,
+    ops::{Add, DerefMut},
+    sync::Arc,
+};
 
 use ash::{
     ext::debug_utils,
     vk::{
-        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence, ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Sampler, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
+        ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
+        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence,
+        ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR,
+        Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, Viewport,
     },
 };
 use cgmath::Matrix4;
 use log::debug;
-use vk_mem::{Allocator, AllocatorCreateInfo};
+use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage, buffers::VkFrameBuffer, command_buffers::VkCommandPool, descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio}, device::{self, VkDevice}, frame_data::FrameData, image_util, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{ShaderInformation, VkPipeline}, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, sampler::VkSampler, surface, swapchain::{ImageDetails, KHRSwapchain}
+        allocated_image::AllocatedImage,
+        buffers::VkFrameBuffer,
+        command_buffers::VkCommandPool,
+        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        device::{self, VkDevice},
+        frame_data::FrameData,
+        image_util,
+        instance::{self, VkInstance},
+        memory_allocator::MemoryAllocator,
+        pipeline::{ShaderInformation, VkPipeline},
+        queue::{QueueType, VkQueue},
+        render_pass::VkRenderPass,
+        sampler::VkSampler,
+        surface,
+        swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::integration::{EguiIntegration, MeshBuffers},
 };
@@ -48,6 +70,7 @@ pub struct Renderer {
     render_area: Rect2D,
     extent: Extent2D,
     pub integration: EguiIntegration,
+    mesh_buffers: Vec<MeshBuffers>,
     command_pool: VkCommandPool,
 }
 
@@ -95,11 +118,11 @@ impl Renderer {
         )?);
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
-        let memory_allocator = Arc::new( MemoryAllocator::new(AllocatorCreateInfo::new(
-                &vk_instance,
-                &vk_device,
-                vk_device.physical_device,
-            )));
+        let memory_allocator = Arc::new(MemoryAllocator::new(AllocatorCreateInfo::new(
+            &vk_instance,
+            &vk_device,
+            vk_device.physical_device,
+        )));
         let image_details = swapchain.create_image_details()?;
         let allocated_image = memory_allocator.create_image(swapchain.clone())?;
         let fonts_image = memory_allocator.create_image(swapchain.clone())?;
@@ -112,7 +135,7 @@ impl Renderer {
             allocated_image.image_view,
             ShaderStageFlags::COMPUTE,
             DescriptorType::STORAGE_IMAGE,
-            None
+            None,
         )?;
 
         let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
@@ -129,7 +152,7 @@ impl Renderer {
             fonts_image.image_view,
             ShaderStageFlags::FRAGMENT,
             DescriptorType::COMBINED_IMAGE_SAMPLER,
-            Some(egui_sampler.clone())
+            Some(egui_sampler.clone()),
         )?;
 
         let compute_pipelines = VkPipeline::compute_pipelines(
@@ -166,11 +189,37 @@ impl Renderer {
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
         }
-        let integration = EguiIntegration::new(window);
+        let mut integration = EguiIntegration::new(window);
+        let full_output = integration.run(
+            |ctx| {
+                egui::CentralPanel::default().show(&ctx, |ui| {
+                    ui.label("Hello world!");
+                    if ui.button("Click me").clicked() {
+                        debug!("CLICKED");
+                    }
+                    if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                        debug!("WHAT THE HEEEEELL");
+                    }
+                });
+            },
+            window,
+        );
+        let mesh_buffers: Vec<MeshBuffers> = integration
+            .convert(full_output)
+            .into_iter()
+            .map(|mesh| {
+                MeshBuffers::new(
+                    mesh,
+                    &memory_allocator,
+                    graphics_queue.clone(),
+                    &command_pool,
+                )
+                .unwrap()
+            })
+            .collect();
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
             .extent(extent.clone());
-
         let viewports = vec![Viewport::default()
             .x(0.0)
             .y(0.0)
@@ -205,6 +254,7 @@ impl Renderer {
             frame_idx: 0,
             render_area,
             integration,
+            mesh_buffers,
             command_pool,
             viewports,
             scissors,
@@ -241,22 +291,23 @@ impl Renderer {
                 .reset_command_buffer(frame_data.command_buffer, CommandBufferResetFlags::empty())
                 .unwrap();
 
-            let mesh_buffers = self
-                .integration
-                .run(
-                    |ctx| {
-                        egui::CentralPanel::default().show(&ctx, |ui| {
-                            ui.label("Hello world!");
-                            if ui.button("Click me").clicked() {
-                                debug!("CLICKED");
-                            }
-                            if ui.button("WHAT THE HEEEEEEELLL").clicked() {
-                                debug!("WHAT THE HEEEEELL");
-                            }
-                        });
-                    },
-                    window,
-                )
+/*
+            let full_output = self.integration.run(
+                |ctx| {
+                    egui::CentralPanel::default().show(&ctx, |ui| {
+                        ui.label("Hello world!");
+                        if ui.button("Click me").clicked() {
+                            debug!("CLICKED");
+                        }
+                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                            debug!("WHAT THE HEEEEELL");
+                        }
+                    });
+                },
+                window,
+            );
+
+            let mesh_buffers: Vec<MeshBuffers> = self.integration.convert(full_output)
                 .into_iter()
                 .map(|mesh| {
                     MeshBuffers::new(
@@ -267,12 +318,14 @@ impl Renderer {
                     )
                     .unwrap()
                 })
-                .collect::<Vec<_>>();
+                .collect();
+*/
 
             self.record_command_buffer(
                 frame_data,
                 &swapchain_image_index,
-                mesh_buffers.get(0).unwrap(),
+                self.mesh_buffers.get(0).unwrap(),
+                window,
             );
 
             let stage_masks = vec![PipelineStageFlags::VERTEX_SHADER];
@@ -286,6 +339,7 @@ impl Renderer {
         }
     }
 
+    #[allow(dead_code)]
     fn immediate_submit<F: FnOnce(&Renderer, CommandBuffer)>(&self, function: F) {
         let command = self.command_pool.single_time_command().unwrap();
         function(self, command);
@@ -298,6 +352,7 @@ impl Renderer {
         frame_data: &FrameData,
         image_index: &ImageIndex,
         mesh_buffers: &MeshBuffers,
+        window: &Window,
     ) {
         unsafe {
             let begin_info =
@@ -342,23 +397,21 @@ impl Renderer {
                 IndexType::UINT32,
             );
 
-            let extent = self.extent;
-            let width = extent.width as f32;
-            let height = extent.height as f32;
+            let scale_factor = window.scale_factor();
+            let logical_size = window.inner_size().to_logical::<f32>(scale_factor); // Use to_logical
+            let logical_width = 2.0 / logical_size.width;
+            let logical_height = 2.0 / logical_size.height;
 
-            // Create the orthographic projection matrix
-            // Maps x from [0, width]   to [-1, 1]
-            // Maps y from [0, height]  to [-1, 1] (adjust if Vulkan Y needs flipping relative to egui)
-            // Common approach (assuming viewport handles Y inversion if needed):
-            let sx = 2.0 / width;
-            let sy = 2.0 / height; // Use -2.0 / height if you need to flip Y here
+            // --- Use Logical Size for Matrix ---
+            let sx = logical_width; // Use logical_width
+            let sy = logical_height; // Use logical_height
             let tx = -1.0;
-            let ty = -1.0; // Use 1.0 if sy is negative (flipping Y)
-
+            let ty = -1.0;
             let clip_matrix = Matrix4::new(
                 sx, 0.0, 0.0, 0.0, // Column 1
                 0.0, sy, 0.0, 0.0, // Column 2
-                0.0, 0.0, 1.0, 0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
+                0.0, 0.0, 1.0,
+                0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
                 tx, ty, 0.0, 1.0, // Column 4
             );
 

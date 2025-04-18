@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use ash::vk::{
-    CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Fence, FenceCreateFlags, FenceCreateInfo, Semaphore, SemaphoreCreateFlags, SemaphoreCreateInfo
+    CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, Fence, FenceCreateFlags, FenceCreateInfo, Semaphore, SemaphoreCreateFlags, SemaphoreCreateInfo
 };
 
-use super::{command_buffers::{self, VkCommandPool}, device::VkDevice, queue::VkQueue};
+use super::{command_buffers::VkCommandPool, device::VkDevice};
 
 #[derive(Clone)]
 pub struct FrameData {

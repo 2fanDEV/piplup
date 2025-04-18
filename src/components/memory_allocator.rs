@@ -2,12 +2,20 @@ use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
     BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageUsageFlags,
-    MemoryPropertyFlags, SharingMode, SwapchainKHR,
+    MemoryPropertyFlags, SharingMode,
 };
-use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage};
+use vk_mem::{
+    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage,
+};
+use winit::window;
 
 use super::{
-    allocated_image::AllocatedImage, buffers::VkBuffer, command_buffers::VkCommandPool, image_util::{image_create_info, image_view_create_info}, queue::VkQueue, swapchain::KHRSwapchain
+    allocated_image::AllocatedImage,
+    buffers::VkBuffer,
+    command_buffers::VkCommandPool,
+    image_util::{image_create_info, image_view_create_info},
+    queue::VkQueue,
+    swapchain::KHRSwapchain,
 };
 
 pub struct MemoryAllocator {
@@ -23,10 +31,9 @@ impl Deref for MemoryAllocator {
 }
 
 impl MemoryAllocator {
-
     pub fn new(allocator_create_info: AllocatorCreateInfo) -> Self {
-        Self{
-         allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() }
+        Self {
+            allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() },
         }
     }
 
@@ -75,9 +82,42 @@ impl MemoryAllocator {
         Ok(allocated_image)
     }
 
-/*    pub fn create_image_with_uploaded_elements<T>(swapchain: Arc<KHRSwapchain>, elements: &[T]) -> Result<AllocatedImage, Error> {
+    pub fn create_image_with_uploaded_elements<T>(
+        &self,
+        swapchain: Arc<KHRSwapchain>,
+        queues: &[Arc<VkQueue>],
+        elements: &[T],
+        command_pool: &VkCommandPool
+    ) -> Result<(), Error>
+    where T: Clone{
+      let staging_buffer = self.staging_buffer(elements, queues)?;
+     let image = &self.allocator;
+     Ok(())
+    }
 
-    } */
+
+    fn staging_buffer<T>(&self, buffer_elements: &[T], queues: &[Arc<VkQueue>]) -> Result<VkBuffer, Error> 
+    where T: Clone {
+        let buffer_size = buffer_elements.len() * size_of::<T>();
+        let mut staging_buffer = self.allocate_single_buffer(
+            buffer_elements,
+            queues,
+            BufferUsageFlags::TRANSFER_SRC,
+            MemoryUsage::Unknown,
+            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+
+        let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                buffer_elements.as_ptr(),
+                data as *mut T,
+                buffer_elements.len(),
+            );
+            self.unmap_memory(&mut staging_buffer.allocation);
+        };
+        Ok(staging_buffer)
+    }
 
     pub fn create_buffer<T>(
         &self,
@@ -92,7 +132,7 @@ impl MemoryAllocator {
         T: Clone,
     {
         let buffer_size = buffer_elements.len() * size_of::<T>();
-        let mut staging_buffer = self.allocate_buffer(
+        let mut staging_buffer = self.allocate_single_buffer(
             buffer_elements,
             queues,
             BufferUsageFlags::TRANSFER_SRC,
@@ -110,7 +150,7 @@ impl MemoryAllocator {
             self.unmap_memory(&mut staging_buffer.allocation);
         };
 
-        let buffer = self.allocate_buffer(
+        let buffer = self.allocate_single_buffer(
             buffer_elements,
             queues,
             BufferUsageFlags::TRANSFER_DST | buffer_usage,
@@ -130,7 +170,7 @@ impl MemoryAllocator {
         Ok(buffer)
     }
 
-    fn allocate_buffer<T>(
+    pub fn allocate_single_buffer<T>(
         &self,
         buffer_elements: &[T],
         queues: &[Arc<VkQueue>],
@@ -158,8 +198,11 @@ impl MemoryAllocator {
             flags: AllocationCreateFlags::MAPPED,
             ..Default::default()
         };
-        let (buffer, allocation) =
-            unsafe { self.allocator.create_buffer(&buffer_info, &create_info).unwrap() };
+        let (buffer, allocation) = unsafe {
+            self.allocator
+                .create_buffer(&buffer_info, &create_info)
+                .unwrap()
+        };
         //       unsafe { allocator.bind_buffer_memory(&allocation, buffer).unwrap() }
         Ok(VkBuffer { buffer, allocation })
     }

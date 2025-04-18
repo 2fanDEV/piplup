@@ -6,14 +6,13 @@ use ash::vk::{
     DynamicState, Extent2D, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Offset2D, Pipeline,
     PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
     PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
-    PipelineLayoutCreateFlags, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo,
+    PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo,
     PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo,
     PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode,
     PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
 use cgmath::Matrix4;
-use log::debug;
 
 use super::{
     device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,

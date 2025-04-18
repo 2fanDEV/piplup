@@ -10,7 +10,7 @@ use super::device::VkDevice;
 #[derive(Clone)]
 pub struct VkSampler {
     sampler: Sampler,
-    device: Arc<VkDevice>,
+    _device: Arc<VkDevice>,
 }
 
 impl Deref for VkSampler {
@@ -47,7 +47,7 @@ impl VkSampler {
             .max_lod(0.0);
         Self {
             sampler: unsafe { device.create_sampler(&create_info, None).unwrap() },
-            device,
+            _device: device,
         }
     }
 }

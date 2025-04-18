@@ -3,14 +3,13 @@ use std::{io::Error, ops::Deref, sync::Arc};
 use ash::{
     khr::swapchain,
     vk::{
-        ComponentMapping, ComponentSwizzle, CompositeAlphaFlagsKHR, Extent3D, Format, Image, ImageAspectFlags, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, SharingMode, SwapchainCreateInfoKHR, SwapchainKHR
+        ComponentMapping, ComponentSwizzle, CompositeAlphaFlagsKHR, Image, ImageAspectFlags, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, SharingMode, SwapchainCreateInfoKHR, SwapchainKHR
     },
 };
-use vk_mem::{Alloc, MemoryUsage};
 use winit::window::Window;
 
 use super::{
-    allocated_image::AllocatedImage, device::VkDevice, image_util::{image_create_info, image_subresource_range, image_view_create_info}, instance::VkInstance, queue::VkQueue, swapchain_support_details::SwapchainSupportDetails
+    device::VkDevice, image_util::image_subresource_range, instance::VkInstance, queue::VkQueue, swapchain_support_details::SwapchainSupportDetails
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
