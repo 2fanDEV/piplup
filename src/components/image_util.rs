@@ -13,6 +13,7 @@ pub fn image_create_info<'a>(
     format: Format,
     flags: ImageUsageFlags,
     extent: Extent3D,
+    initial_layout: Option<ImageLayout>
 ) -> ImageCreateInfo<'a> {
     ImageCreateInfo::default()
         .format(format)
@@ -23,6 +24,7 @@ pub fn image_create_info<'a>(
         .array_layers(1)
         .samples(SampleCountFlags::TYPE_1)
         .tiling(ImageTiling::OPTIMAL)
+        .initial_layout(initial_layout.unwrap_or_else(|| ImageLayout::UNDEFINED))
 }
 
 pub fn image_view_create_info<'a>(
@@ -58,8 +60,8 @@ pub fn image_transition(
     );
 
     let image_memory_barrier = ImageMemoryBarrier::default()
-        .src_access_mask(AccessFlags::MEMORY_WRITE)
-        .dst_access_mask(AccessFlags::MEMORY_WRITE | AccessFlags::MEMORY_READ)
+        .src_access_mask(AccessFlags::COLOR_ATTACHMENT_READ)
+        .dst_access_mask(AccessFlags::SHADER_READ)
         .old_layout(current_image_layout)
         .new_layout(new_image_layout)
         .src_queue_family_index(index)
@@ -70,8 +72,8 @@ pub fn image_transition(
     unsafe {
         device.cmd_pipeline_barrier(
             command_buffer,
-            PipelineStageFlags::ALL_COMMANDS,
-            PipelineStageFlags::ALL_COMMANDS,
+            PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStageFlags::FRAGMENT_SHADER,
             DependencyFlags::empty(),
             &[],
             &[],
@@ -87,6 +89,14 @@ pub fn image_subresource_range(aspect_flag: ImageAspectFlags) -> ImageSubresourc
         .level_count(REMAINING_MIP_LEVELS)
         .base_array_layer(0)
         .layer_count(REMAINING_ARRAY_LAYERS)
+}
+
+pub fn image_subresource_layers(aspect_flag: ImageAspectFlags) -> ImageSubresourceLayers {
+    ImageSubresourceLayers::default()
+        .layer_count(1)
+        .mip_level(0)
+        .base_array_layer(0)
+        .aspect_mask(aspect_flag)
 }
 
 pub fn copy_image_to_image(

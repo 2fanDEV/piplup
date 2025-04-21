@@ -7,9 +7,9 @@ use cgmath::{Vector2, Vector4};
 
 #[derive(Debug, Clone)]
 pub struct Vertex2D {
-    pos: Vector2<f32>,
-    texture_coords: Vector2<f32>,
-    color: Vector4<u8>,
+    pub pos: Vector2<f32>,
+    pub  texture_coords: Vector2<f32>,
+    pub color: Vector4<u8>,
 }
 
 impl Vertex2D {
@@ -46,7 +46,7 @@ impl Vertex2D {
         attribute_descriptons[2] = attribute_descriptons[2]
             .binding(0)
             .location(2)
-            .format(Format::R8G8B8A8_UNORM)
+            .format(Format::R8G8B8A8_SRGB)
             .offset(offset_of!(Vertex2D, color) as u32);
         attribute_descriptons.to_vec()
     }

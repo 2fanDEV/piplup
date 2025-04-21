@@ -238,8 +238,8 @@ fn create_rasterizer_state<'a>() -> PipelineRasterizationStateCreateInfo<'a> {
         .rasterizer_discard_enable(false)
         .line_width(1.0)
         .polygon_mode(PolygonMode::FILL)
-        .cull_mode(CullModeFlags::BACK)
-        .front_face(FrontFace::COUNTER_CLOCKWISE)
+        .cull_mode(CullModeFlags::NONE)
+        .front_face(FrontFace::CLOCKWISE)
         .depth_bias_constant_factor(0.0)
         .depth_bias_slope_factor(0.0)
         .depth_bias_clamp(0.0)
@@ -262,7 +262,7 @@ fn create_color_blending_attachment_state() -> PipelineColorBlendAttachmentState
                 | ColorComponentFlags::B
                 | ColorComponentFlags::A,
         )
-        .blend_enable(false)
+        .blend_enable(true)
         .src_color_blend_factor(BlendFactor::ONE)
         .dst_color_blend_factor(BlendFactor::ZERO)
         .color_blend_op(BlendOp::ADD)

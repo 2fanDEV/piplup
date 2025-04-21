@@ -88,7 +88,7 @@ impl DescriptorAllocator {
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
         let mut descriptor_image_infos = vec![];
         let mut descriptor_info = DescriptorImageInfo::default()
-            .image_layout(ImageLayout::GENERAL)
+            .image_layout(ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(image_view);
         if sampler.is_some() {
             descriptor_info = descriptor_info.sampler(*sampler.unwrap());

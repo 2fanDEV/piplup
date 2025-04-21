@@ -41,7 +41,7 @@ impl VkSampler {
             .unnormalized_coordinates(false)
             .compare_op(CompareOp::ALWAYS)
             .compare_enable(false)
-            .mipmap_mode(SamplerMipmapMode::LINEAR)
+            .mipmap_mode(SamplerMipmapMode::NEAREST)
             .mip_lod_bias(0.0)
             .min_lod(0.0)
             .max_lod(0.0);

@@ -1,14 +1,13 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    Buffer, BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Framebuffer, FramebufferCreateInfo,
-    Image, ImageLayout, MemoryPropertyFlags, Offset3D,
+    BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, MemoryPropertyFlags, Offset3D
 };
+use ash::vk::Buffer;
 use vk_mem::Allocation;
 
 use super::{
-    command_buffers::VkCommandPool, device::VkDevice, queue::VkQueue, render_pass::VkRenderPass,
-    swapchain::ImageDetails,
+    command_buffers::VkCommandPool, device::VkDevice, image_util::image_subresource_layers, queue::VkQueue, render_pass::VkRenderPass, swapchain::ImageDetails
 };
 
 #[allow(dead_code)]
@@ -95,26 +94,31 @@ impl VkBuffer {
     pub fn copy_buffer_to_image(
         src: Buffer,
         dst: Image,
-        size: DeviceSize,
+        extent: Extent3D,
         queue: Arc<VkQueue>,
         command_pool: &VkCommandPool,
     ) -> Result<(), Error> {
         let command_buffer = command_pool.single_time_command().unwrap();
-
+        let image_subresource= image_subresource_layers(ImageAspectFlags::COLOR);
         let buffer_image_copy = BufferImageCopy::default()
             .buffer_offset(0)
             .image_offset(Offset3D::default().x(0).y(0).z(0))
+            .image_subresource(image_subresource)
+            .image_extent(extent)
             .buffer_row_length(0)
             .buffer_image_height(0);
+
         unsafe {
             command_pool.device.cmd_copy_buffer_to_image(
                 command_buffer,
                 src,
                 dst,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[],
+                &[buffer_image_copy],
             )
         };
+
+        command_pool.end_single_time_command(queue, command_buffer);
 
         Ok(())
     }

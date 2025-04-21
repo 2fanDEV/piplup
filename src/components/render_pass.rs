@@ -1,6 +1,10 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::{AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, Format, ImageLayout, PipelineBindPoint, RenderPass, RenderPassCreateInfo, SampleCountFlags, SubpassDescription};
+use ash::vk::{
+    AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
+    DependencyFlags, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass,
+    RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
+};
 
 use super::device::VkDevice;
 
@@ -8,7 +12,7 @@ use super::device::VkDevice;
 pub struct VkRenderPass {
     render_pass: RenderPass,
     device: Arc<VkDevice>,
-    format: Format
+    format: Format,
 }
 
 impl Deref for VkRenderPass {
@@ -21,31 +25,65 @@ impl Deref for VkRenderPass {
 
 impl VkRenderPass {
     pub fn new(device: Arc<VkDevice>, format: Format) -> Result<VkRenderPass, Error> {
-     let color_attachment = create_attachment(format);
-    let color_attachment_ref = vec![create_attachment_ref()];
-    let subpass_description = create_subpass_description(&color_attachment_ref);
-    Ok(unsafe {
-        Self {
-        render_pass: device
-            .create_render_pass(
-                &render_pass_create_info(&[color_attachment], &[subpass_description]),
-                None,
-            )
-            .unwrap(),
-            device,
-            format
-        }
-    })       
+        let color_attachment = create_attachment(format);
+        let color_attachment_ref = vec![create_attachment_ref()];
+        let subpass_description = create_subpass_description(&color_attachment_ref);
+        let subpass_dependency = create_subpass_dependency(
+            DependencyFlags::BY_REGION,
+            0,
+            0,
+       PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStageFlags::FRAGMENT_SHADER,
+            AccessFlags::COLOR_ATTACHMENT_READ,
+            AccessFlags::SHADER_READ
+            );
+        Ok(unsafe {
+            Self {
+                render_pass: device
+                    .create_render_pass(
+                        &render_pass_create_info(
+                            &[color_attachment],
+                            &[subpass_description],
+                            &[subpass_dependency],
+                        ),
+                        None,
+                    )
+                    .unwrap(),
+                device,
+                format,
+            }
+        })
     }
 }
 
 fn render_pass_create_info<'a>(
     attachments: &'a [AttachmentDescription],
-    subpass_description: &'a [SubpassDescription],
+    description: &'a [SubpassDescription],
+    dependencies: &'a [SubpassDependency],
 ) -> RenderPassCreateInfo<'a> {
     RenderPassCreateInfo::default()
         .attachments(attachments)
-        .subpasses(subpass_description)
+        .subpasses(description)
+        .dependencies(dependencies)
+}
+
+fn create_subpass_dependency(
+    flag: DependencyFlags,
+    src_subpass: u32,
+    dst_subpass: u32,
+    src_stage_mask: PipelineStageFlags,
+    dst_stage_mask: PipelineStageFlags,
+    src_access_mask: AccessFlags,
+    dst_access_mask: AccessFlags,
+) -> SubpassDependency {
+    SubpassDependency::default()
+        .dependency_flags(flag)
+        .src_subpass(src_subpass)
+        .dst_subpass(dst_subpass)
+        .src_stage_mask(src_stage_mask)
+        .src_access_mask(src_access_mask)
+        .dst_access_mask(dst_access_mask)
+        .dst_stage_mask(dst_stage_mask)
 }
 
 fn create_attachment(image_format: Format) -> AttachmentDescription {

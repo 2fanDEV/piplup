@@ -1,25 +1,30 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageUsageFlags,
-    MemoryPropertyFlags, SharingMode,
+    BufferCreateInfo, BufferUsageFlags, Extent3D, Format, Image, ImageAspectFlags,
+    ImageCreateFlags, ImageCreateInfo, ImageLayout, ImageUsageFlags, ImageViewCreateFlags,
+    ImageViewCreateInfo, MemoryPropertyFlags, MemoryType, SharingMode,
 };
+use egui::FontImage;
+use log::debug;
 use vk_mem::{
-    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage,
+    Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
+    MemoryUsage,
 };
-use winit::window;
 
 use super::{
     allocated_image::AllocatedImage,
     buffers::VkBuffer,
     command_buffers::VkCommandPool,
-    image_util::{image_create_info, image_view_create_info},
+    device::VkDevice,
+    image_util::{image_create_info, image_transition, image_view_create_info},
     queue::VkQueue,
     swapchain::KHRSwapchain,
 };
 
 pub struct MemoryAllocator {
     allocator: vk_mem::Allocator,
+    device: Arc<VkDevice>,
 }
 
 impl Deref for MemoryAllocator {
@@ -31,9 +36,10 @@ impl Deref for MemoryAllocator {
 }
 
 impl MemoryAllocator {
-    pub fn new(allocator_create_info: AllocatorCreateInfo) -> Self {
+    pub fn new(device: Arc<VkDevice>, allocator_create_info: AllocatorCreateInfo) -> Self {
         Self {
             allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() },
+            device,
         }
     }
 
@@ -52,6 +58,7 @@ impl MemoryAllocator {
                 | ImageUsageFlags::COLOR_ATTACHMENT
                 | ImageUsageFlags::SAMPLED,
             extent,
+            None,
         );
 
         let mut allocation_create_info = AllocationCreateInfo::default();
@@ -82,25 +89,104 @@ impl MemoryAllocator {
         Ok(allocated_image)
     }
 
-    pub fn create_image_with_uploaded_elements<T>(
+    pub fn create_font_image(
         &self,
-        swapchain: Arc<KHRSwapchain>,
         queues: &[Arc<VkQueue>],
-        elements: &[T],
-        command_pool: &VkCommandPool
-    ) -> Result<(), Error>
-    where T: Clone{
-      let staging_buffer = self.staging_buffer(elements, queues)?;
-     let image = &self.allocator;
-     Ok(())
+        font_image: FontImage,
+        command_pool: &VkCommandPool,
+    ) -> Result<AllocatedImage, &str> {
+        let staging_buffer = self
+            .staging_buffer(
+                (size_of::<f32>() * font_image.pixels.len()) as u64,
+                &font_image.pixels,
+                queues,
+            )
+            .unwrap();
+
+
+        let extent = Extent3D::default()
+            .height(font_image.height() as u32)
+            .width(font_image.width() as u32)
+            .depth(1);
+        let image_info = image_create_info(
+            Format::R8G8B8A8_SRGB,
+            ImageUsageFlags::TRANSFER_DST
+                | ImageUsageFlags::COLOR_ATTACHMENT
+                | ImageUsageFlags::SAMPLED,
+            extent,
+            Some(ImageLayout::UNDEFINED),
+        );
+        let create_info = Self::allocation_create_info(
+            AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_RANDOM,
+            MemoryPropertyFlags::DEVICE_LOCAL,
+            None,
+            MemoryUsage::Auto,
+            None,
+        );
+        let (image, allocation) = unsafe {
+            self.allocator
+                .create_image(&image_info, &create_info)
+                .unwrap()
+        };
+
+        let single_time_command = command_pool.single_time_command().unwrap();
+        image_transition(
+            command_pool.device.clone(),
+            single_time_command,
+            queues[0].queue_family_index,
+            image,
+            ImageLayout::UNDEFINED,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+        );
+        command_pool.end_single_time_command(queues[0].clone(), single_time_command);
+
+        VkBuffer::copy_buffer_to_image(
+            *staging_buffer,
+            image,
+            extent,
+            queues[0].clone(),
+            command_pool,
+        )
+        .unwrap();
+
+
+        let single_time_command = command_pool.single_time_command().unwrap();
+        image_transition(
+            command_pool.device.clone(),
+            single_time_command,
+            queues[0].queue_family_index,
+            image,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        );
+        command_pool.end_single_time_command(queues[0].clone(), single_time_command);
+        let image_view_create_info =
+            image_view_create_info(image, Format::R8G8B8A8_SRGB, ImageAspectFlags::COLOR);
+        let image_view = unsafe {
+            self.device
+                .create_image_view(&image_view_create_info, None)
+                .unwrap()
+        };
+        Ok(AllocatedImage {
+            image,
+            image_view,
+            allocation,
+            extent,
+            image_format: Format::R8G8B8A8_UNORM,
+        })
     }
 
-
-    fn staging_buffer<T>(&self, buffer_elements: &[T], queues: &[Arc<VkQueue>]) -> Result<VkBuffer, Error> 
-    where T: Clone {
-        let buffer_size = buffer_elements.len() * size_of::<T>();
+    fn staging_buffer<T>(
+        &self,
+        buffer_size: u64,
+        buffer_elements: &[T],
+        queues: &[Arc<VkQueue>],
+    ) -> Result<VkBuffer, Error>
+    where
+        T: Clone,
+    {
         let mut staging_buffer = self.allocate_single_buffer(
-            buffer_elements,
+            buffer_size,
             queues,
             BufferUsageFlags::TRANSFER_SRC,
             MemoryUsage::Unknown,
@@ -131,15 +217,8 @@ impl MemoryAllocator {
     where
         T: Clone,
     {
-        let buffer_size = buffer_elements.len() * size_of::<T>();
-        let mut staging_buffer = self.allocate_single_buffer(
-            buffer_elements,
-            queues,
-            BufferUsageFlags::TRANSFER_SRC,
-            MemoryUsage::Unknown,
-            MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-
+        let buffer_size = (buffer_elements.len() * size_of::<T>()) as u64;
+        let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -151,7 +230,7 @@ impl MemoryAllocator {
         };
 
         let buffer = self.allocate_single_buffer(
-            buffer_elements,
+            buffer_size,
             queues,
             BufferUsageFlags::TRANSFER_DST | buffer_usage,
             memory_usage,
@@ -170,25 +249,21 @@ impl MemoryAllocator {
         Ok(buffer)
     }
 
-    pub fn allocate_single_buffer<T>(
+    pub fn allocate_single_buffer(
         &self,
-        buffer_elements: &[T],
+        buffer_size: u64,
         queues: &[Arc<VkQueue>],
         buffer_usage: BufferUsageFlags,
         memory_usage: MemoryUsage,
         memory_property_flags: MemoryPropertyFlags,
-    ) -> Result<VkBuffer, Error>
-    where
-        T: Clone,
-    {
+    ) -> Result<VkBuffer, Error> {
         let queue_family_indices = queues
             .iter()
             .map(|queue| queue.queue_family_index)
             .collect::<Vec<u32>>();
 
-        let buffer_size = buffer_elements.len() * size_of::<T>();
         let buffer_info = BufferCreateInfo::default()
-            .size(buffer_size as u64)
+            .size(buffer_size)
             .sharing_mode(SharingMode::EXCLUSIVE)
             .queue_family_indices(&queue_family_indices) // not sure about this
             .usage(buffer_usage);
@@ -205,5 +280,22 @@ impl MemoryAllocator {
         };
         //       unsafe { allocator.bind_buffer_memory(&allocation, buffer).unwrap() }
         Ok(VkBuffer { buffer, allocation })
+    }
+
+    fn allocation_create_info(
+        flags: AllocationCreateFlags,
+        required_flags: MemoryPropertyFlags,
+        preferred_flags: Option<MemoryPropertyFlags>,
+        memory_usage: MemoryUsage,
+        memory_type_bits: Option<u32>,
+    ) -> AllocationCreateInfo {
+        let mut allocation_create_info = AllocationCreateInfo::default();
+        allocation_create_info.flags = flags;
+        allocation_create_info.required_flags = required_flags;
+        allocation_create_info.preferred_flags =
+            preferred_flags.unwrap_or(MemoryPropertyFlags::empty());
+        allocation_create_info.memory_type_bits = memory_type_bits.unwrap_or(0);
+        allocation_create_info.usage = memory_usage;
+        allocation_create_info
     }
 }

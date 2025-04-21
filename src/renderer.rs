@@ -1,8 +1,4 @@
-use std::{
-    io::Error,
-    ops::{Add, DerefMut},
-    sync::Arc,
-};
+use std::{io::Error, ops::Add, sync::Arc};
 
 use ash::{
     ext::debug_utils,
@@ -15,7 +11,8 @@ use ash::{
     },
 };
 use cgmath::Matrix4;
-use log::debug;
+use egui::Color32;
+use log::{debug, error};
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
 
@@ -29,7 +26,7 @@ use crate::{
         descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
         device::{self, VkDevice},
         frame_data::FrameData,
-        image_util,
+        image_util::image_transition,
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
         pipeline::{ShaderInformation, VkPipeline},
@@ -51,16 +48,14 @@ pub struct Renderer {
     graphics_queue: Arc<VkQueue>,
     presentation_queue: Arc<VkQueue>,
     swapchain: Arc<KHRSwapchain>,
-    compute_pipelines: Vec<VkPipeline>,
     render_pass: Arc<VkRenderPass>,
     memory_allocator: Arc<MemoryAllocator>,
     graphics_pipeline: Vec<VkPipeline>,
-    compute_descriptor_allocator: DescriptorAllocator,
-    compute_descriptor_set_details: DescriptorSetDetails,
     egui_sampler: VkSampler,
     egui_descriptor_allocator: DescriptorAllocator,
     egui_descriptor_set_details: DescriptorSetDetails,
     allocated_image: AllocatedImage,
+    font_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
@@ -118,15 +113,13 @@ impl Renderer {
         )?);
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
-        let memory_allocator = Arc::new(MemoryAllocator::new(AllocatorCreateInfo::new(
-            &vk_instance,
-            &vk_device,
-            vk_device.physical_device,
-        )));
+        let memory_allocator = Arc::new(MemoryAllocator::new(
+            vk_device.clone(),
+            AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device),
+        ));
         let image_details = swapchain.create_image_details()?;
         let allocated_image = memory_allocator.create_image(swapchain.clone())?;
-        let fonts_image = memory_allocator.create_image(swapchain.clone())?;
-        let compute_descriptor_allocator = DescriptorAllocator::new(
+ /*       let compute_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             10,
             vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
@@ -138,46 +131,17 @@ impl Renderer {
             None,
         )?;
 
-        let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
-
-        let egui_descriptor_allocator = DescriptorAllocator::new(
-            vk_device.clone(),
-            10,
-            vec![PoolSizeRatio::new(
-                DescriptorType::COMBINED_IMAGE_SAMPLER,
-                1.0,
-            )],
-        );
-        let egui_descriptor_set_details = egui_descriptor_allocator.get_descriptors(
-            fonts_image.image_view,
-            ShaderStageFlags::FRAGMENT,
-            DescriptorType::COMBINED_IMAGE_SAMPLER,
-            Some(egui_sampler.clone()),
-        )?;
-
         let compute_pipelines = VkPipeline::compute_pipelines(
             vk_device.clone(),
             &[compute_descriptor_set_details.layout],
             "shaders/compute_shader.spv",
         )?;
+
+*/
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
         )?);
-        let graphics_pipeline = VkPipeline::egui_pipeline(
-            vk_device.clone(),
-            &[
-                ShaderInformation::vertex_2d_information(
-                    "shaders/2D_vertex_shader.spv".to_string(),
-                ),
-                ShaderInformation::fragment_2d_information(
-                    "shaders/2D_fragment_shader.spv".to_string(),
-                ),
-            ],
-            &[egui_descriptor_set_details.layout],
-            &extent,
-            render_pass.clone(),
-        )?;
         let framebuffers = VkFrameBuffer::create_framebuffers(
             vk_device.clone(),
             render_pass.clone(),
@@ -204,8 +168,52 @@ impl Renderer {
             },
             window,
         );
+
+        let font_image = match integration.get_fonts() {
+            Some(fonts) => memory_allocator.create_font_image(
+                &[graphics_queue.clone()],
+                fonts.image(),
+                &command_pool,
+            ),
+            None => {
+                error!("Failed to create FontImage as EGUI integration has not been run yet once!");
+                Err("EguiIntegration not run yet once!")
+            } // TODO
+        }
+        .unwrap();
+        let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
+        let egui_descriptor_allocator = DescriptorAllocator::new(
+            vk_device.clone(),
+            10,
+            vec![PoolSizeRatio::new(
+                DescriptorType::COMBINED_IMAGE_SAMPLER,
+                1.0,
+            )],
+        );
+        let egui_descriptor_set_details = egui_descriptor_allocator.get_descriptors(
+            font_image.image_view,
+            ShaderStageFlags::FRAGMENT,
+            DescriptorType::COMBINED_IMAGE_SAMPLER,
+            Some(egui_sampler.clone()),
+        )?;
+
+        let graphics_pipeline = VkPipeline::egui_pipeline(
+            vk_device.clone(),
+            &[
+                ShaderInformation::vertex_2d_information(
+                    "/Users/zapzap/Projects/piplup/shaders/2D_vertex_shader.spv".to_string(),
+                ),
+                ShaderInformation::fragment_2d_information(
+                    "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
+                ),
+            ],
+            &[egui_descriptor_set_details.layout],
+            &extent,
+            render_pass.clone(),
+        )?;
+
         let mesh_buffers: Vec<MeshBuffers> = integration
-            .convert(full_output)
+            .convert(extent, full_output)
             .into_iter()
             .map(|mesh| {
                 MeshBuffers::new(
@@ -238,14 +246,15 @@ impl Renderer {
             graphics_queue,
             presentation_queue,
             swapchain,
-            compute_pipelines,
-            compute_descriptor_set_details,
-            compute_descriptor_allocator,
+        //    compute_pipelines,
+         //   compute_descriptor_set_details,
+          //  compute_descriptor_allocator,
             egui_descriptor_allocator,
             egui_descriptor_set_details,
             graphics_pipeline,
             render_pass,
             allocated_image,
+            font_image,
             framebuffers,
             image_details,
             egui_sampler,
@@ -275,7 +284,7 @@ impl Renderer {
                 .unwrap();
             self.device.reset_fences(&frame_data.render_fence).unwrap();
 
-            let swapchain_image_index = ImageIndex::new(
+            let image_index = ImageIndex::new(
                 self.swapchain
                     .s_device
                     .acquire_next_image(
@@ -291,10 +300,10 @@ impl Renderer {
                 .reset_command_buffer(frame_data.command_buffer, CommandBufferResetFlags::empty())
                 .unwrap();
 
-/*
             let full_output = self.integration.run(
                 |ctx| {
                     egui::CentralPanel::default().show(&ctx, |ui| {
+                        ui.heading("WTFIKJOIWK");
                         ui.label("Hello world!");
                         if ui.button("Click me").clicked() {
                             debug!("CLICKED");
@@ -307,7 +316,9 @@ impl Renderer {
                 window,
             );
 
-            let mesh_buffers: Vec<MeshBuffers> = self.integration.convert(full_output)
+            self.mesh_buffers = self
+                .integration
+                .convert(self.extent, full_output)
                 .into_iter()
                 .map(|mesh| {
                     MeshBuffers::new(
@@ -319,18 +330,20 @@ impl Renderer {
                     .unwrap()
                 })
                 .collect();
-*/
 
             self.record_command_buffer(
                 frame_data,
-                &swapchain_image_index,
+                &image_index,
                 self.mesh_buffers.get(0).unwrap(),
                 window,
             );
 
-            let stage_masks = vec![PipelineStageFlags::VERTEX_SHADER];
+            let stage_masks = vec![
+                PipelineStageFlags::VERTEX_SHADER,
+                PipelineStageFlags::FRAGMENT_SHADER,
+            ];
             self.submit_queue(**self.graphics_queue, frame_data, &stage_masks);
-            let image_indices = vec![swapchain_image_index.index];
+            let image_indices = vec![image_index.index];
             self.present_queue(
                 **self.graphics_queue,
                 &frame_data.render_semaphore,
@@ -357,11 +370,11 @@ impl Renderer {
         unsafe {
             let begin_info =
                 CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
             self.device
                 .begin_command_buffer(frame_data.command_buffer, &begin_info)
                 .unwrap();
 
+     
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
                     float32: [0.0, 0.0, 1.0, 1.0],
@@ -372,6 +385,7 @@ impl Renderer {
                 PipelineBindPoint::GRAPHICS,
                 *self.graphics_pipeline[0],
             );
+
             let render_pass_begin_info = RenderPassBeginInfo::default()
                 .render_pass(**self.render_pass)
                 .framebuffer(*self.framebuffers[image_index.index as usize])
@@ -383,10 +397,11 @@ impl Renderer {
                 &render_pass_begin_info,
                 SubpassContents::INLINE,
             );
+
             self.device
-                .cmd_set_viewport(frame_data.command_buffer, 0, &self.viewports);
+                .cmd_set_viewport(frame_data.command_buffer, 0, &[mesh_buffers.viewport]);
             self.device
-                .cmd_set_scissor(frame_data.command_buffer, 0, &self.scissors);
+                .cmd_set_scissor(frame_data.command_buffer, 0, &[mesh_buffers.scissors]);
             let vertex_buffer = vec![mesh_buffers.vertex_buffer.buffer];
             self.device
                 .cmd_bind_vertex_buffers(frame_data.command_buffer, 0, &vertex_buffer, &[0]);
@@ -432,15 +447,6 @@ impl Renderer {
                 matrix_bytes,
             );
 
-            image_util::image_transition(
-                self.device.clone(),
-                frame_data.command_buffer,
-                self.graphics_queue.queue_family_index,
-                self.image_details[image_index.index as usize].image,
-                ImageLayout::UNDEFINED,
-                ImageLayout::GENERAL,
-            );
-
             self.device.cmd_bind_descriptor_sets(
                 frame_data.command_buffer,
                 PipelineBindPoint::GRAPHICS,
@@ -450,14 +456,6 @@ impl Renderer {
                 &[],
             );
 
-            image_util::image_transition(
-                self.device.clone(),
-                frame_data.command_buffer,
-                self.graphics_queue.queue_family_index,
-                self.image_details[image_index.index as usize].image,
-                ImageLayout::GENERAL,
-                ImageLayout::PRESENT_SRC_KHR,
-            );
 
             self.device.cmd_draw_indexed(
                 frame_data.command_buffer,
@@ -468,7 +466,6 @@ impl Renderer {
                 0,
             );
             self.device.cmd_end_render_pass(frame_data.command_buffer);
-
             self.device
                 .end_command_buffer(frame_data.command_buffer)
                 .unwrap();
