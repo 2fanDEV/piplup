@@ -13,6 +13,7 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
 use cgmath::Matrix4;
+use winit::window;
 
 use super::{
     device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,

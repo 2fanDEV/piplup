@@ -11,7 +11,7 @@ use ash::{
     },
 };
 use cgmath::Matrix4;
-use egui::Color32;
+use egui::{Color32, RichText, WidgetText};
 use log::{debug, error};
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
@@ -119,25 +119,25 @@ impl Renderer {
         ));
         let image_details = swapchain.create_image_details()?;
         let allocated_image = memory_allocator.create_image(swapchain.clone())?;
- /*       let compute_descriptor_allocator = DescriptorAllocator::new(
-            vk_device.clone(),
-            10,
-            vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
-        );
-        let compute_descriptor_set_details = compute_descriptor_allocator.get_descriptors(
-            allocated_image.image_view,
-            ShaderStageFlags::COMPUTE,
-            DescriptorType::STORAGE_IMAGE,
-            None,
-        )?;
+        /*       let compute_descriptor_allocator = DescriptorAllocator::new(
+                    vk_device.clone(),
+                    10,
+                    vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
+                );
+                let compute_descriptor_set_details = compute_descriptor_allocator.get_descriptors(
+                    allocated_image.image_view,
+                    ShaderStageFlags::COMPUTE,
+                    DescriptorType::STORAGE_IMAGE,
+                    None,
+                )?;
 
-        let compute_pipelines = VkPipeline::compute_pipelines(
-            vk_device.clone(),
-            &[compute_descriptor_set_details.layout],
-            "shaders/compute_shader.spv",
-        )?;
+                let compute_pipelines = VkPipeline::compute_pipelines(
+                    vk_device.clone(),
+                    &[compute_descriptor_set_details.layout],
+                    "shaders/compute_shader.spv",
+                )?;
 
-*/
+        */
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
@@ -156,15 +156,20 @@ impl Renderer {
         let mut integration = EguiIntegration::new(window);
         let full_output = integration.run(
             |ctx| {
-                egui::CentralPanel::default().show(&ctx, |ui| {
-                    ui.label("Hello world!");
-                    if ui.button("Click me").clicked() {
-                        debug!("CLICKED");
-                    }
-                    if ui.button("WHAT THE HEEEEEEELLL").clicked() {
-                        debug!("WHAT THE HEEEEELL");
-                    }
-                });
+                egui::Window::new(WidgetText::default())
+                    .open(&mut true)
+                    .vscroll(false)
+                    .resizable(true)
+                    .default_size([1200.0, 1200.0])
+                    .show(&ctx, |ui| {
+                        ui.label("Hello world!");
+                        if ui.button("Click me").clicked() {
+                            debug!("CLICKED");
+                        }
+                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                            debug!("WHAT THE HEEEEELL");
+                        }
+                    });
             },
             window,
         );
@@ -190,13 +195,12 @@ impl Renderer {
                 1.0,
             )],
         );
-        let egui_descriptor_set_details = egui_descriptor_allocator.get_descriptors(
+        let egui_descriptor_set_details_font = egui_descriptor_allocator.get_descriptors(
             font_image.image_view,
             ShaderStageFlags::FRAGMENT,
             DescriptorType::COMBINED_IMAGE_SAMPLER,
             Some(egui_sampler.clone()),
         )?;
-
         let graphics_pipeline = VkPipeline::egui_pipeline(
             vk_device.clone(),
             &[
@@ -207,7 +211,7 @@ impl Renderer {
                     "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
                 ),
             ],
-            &[egui_descriptor_set_details.layout],
+            &[egui_descriptor_set_details_font.layout],
             &extent,
             render_pass.clone(),
         )?;
@@ -246,11 +250,11 @@ impl Renderer {
             graphics_queue,
             presentation_queue,
             swapchain,
-        //    compute_pipelines,
-         //   compute_descriptor_set_details,
-          //  compute_descriptor_allocator,
+            //    compute_pipelines,
+            //   compute_descriptor_set_details,
+            //  compute_descriptor_allocator,
             egui_descriptor_allocator,
-            egui_descriptor_set_details,
+            egui_descriptor_set_details: egui_descriptor_set_details_font,
             graphics_pipeline,
             render_pass,
             allocated_image,
@@ -302,20 +306,23 @@ impl Renderer {
 
             let full_output = self.integration.run(
                 |ctx| {
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        ui.heading("WTFIKJOIWK");
-                        ui.label("Hello world!");
-                        if ui.button("Click me").clicked() {
-                            debug!("CLICKED");
-                        }
-                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
-                            debug!("WHAT THE HEEEEELL");
-                        }
-                    });
+                    egui::Window::new(WidgetText::default())
+                        .open(&mut true)
+                        .vscroll(false)
+                        .resizable(true)
+                        .default_size([1200.0, 1200.0])
+                        .show(&ctx, |ui| {
+                            ui.label("Hello world!");
+                            if ui.button("Click me").clicked() {
+                                debug!("CLICKED");
+                            }
+                            if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                                debug!("WHAT THE HEEEEELL");
+                            }
+                        });
                 },
                 window,
             );
-
             self.mesh_buffers = self
                 .integration
                 .convert(self.extent, full_output)
@@ -331,13 +338,7 @@ impl Renderer {
                 })
                 .collect();
 
-            self.record_command_buffer(
-                frame_data,
-                &image_index,
-                self.mesh_buffers.get(0).unwrap(),
-                window,
-            );
-
+            self.record_command_buffer(frame_data, &image_index, &self.mesh_buffers, window);
             let stage_masks = vec![
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
@@ -364,7 +365,7 @@ impl Renderer {
         &self,
         frame_data: &FrameData,
         image_index: &ImageIndex,
-        mesh_buffers: &MeshBuffers,
+        mesh_buffers: &[MeshBuffers],
         window: &Window,
     ) {
         unsafe {
@@ -374,7 +375,6 @@ impl Renderer {
                 .begin_command_buffer(frame_data.command_buffer, &begin_info)
                 .unwrap();
 
-     
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
                     float32: [0.0, 0.0, 1.0, 1.0],
@@ -399,37 +399,21 @@ impl Renderer {
             );
 
             self.device
-                .cmd_set_viewport(frame_data.command_buffer, 0, &[mesh_buffers.viewport]);
-            self.device
-                .cmd_set_scissor(frame_data.command_buffer, 0, &[mesh_buffers.scissors]);
-            let vertex_buffer = vec![mesh_buffers.vertex_buffer.buffer];
-            self.device
-                .cmd_bind_vertex_buffers(frame_data.command_buffer, 0, &vertex_buffer, &[0]);
-            self.device.cmd_bind_index_buffer(
-                frame_data.command_buffer,
-                mesh_buffers.indices_buffer.buffer,
-                0,
-                IndexType::UINT32,
-            );
-
+                .cmd_set_viewport(frame_data.command_buffer, 0, &self.viewports);
             let scale_factor = window.scale_factor();
-            let logical_size = window.inner_size().to_logical::<f32>(scale_factor); // Use to_logical
-            let logical_width = 2.0 / logical_size.width;
-            let logical_height = 2.0 / logical_size.height;
+            let logical_size = window.inner_size().to_logical::<f32>(scale_factor);
 
-            // --- Use Logical Size for Matrix ---
-            let sx = logical_width; // Use logical_width
-            let sy = logical_height; // Use logical_height
+            let sx = 2.0 / logical_size.width;
+            let sy = 2.0 / logical_size.height;
             let tx = -1.0;
             let ty = -1.0;
-            let clip_matrix = Matrix4::new(
-                sx, 0.0, 0.0, 0.0, // Column 1
-                0.0, sy, 0.0, 0.0, // Column 2
-                0.0, 0.0, 1.0,
-                0.0, // Column 3 (maps Z=0 to Z=0, adjust Z scale/offset if needed)
-                tx, ty, 0.0, 1.0, // Column 4
-            );
 
+            let clip_matrix = Matrix4::new(
+                sx, 0.0, 0.0, 0.0,
+                0.0, sy, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                tx, ty, 0.0, 1.0,
+            );
             let matrix_array: &[[f32; 4]; 4] = clip_matrix.as_ref();
 
             // Get a pointer to the first element of the array
@@ -438,14 +422,6 @@ impl Renderer {
             // Convert the pointer to a byte slice
             let matrix_bytes: &[u8] =
                 std::slice::from_raw_parts(matrix_ptr as *const u8, size_of::<Matrix4<f32>>());
-
-            self.device.cmd_push_constants(
-                frame_data.command_buffer,
-                self.graphics_pipeline[0].pipeline_layout,
-                ShaderStageFlags::VERTEX,
-                0,
-                matrix_bytes,
-            );
 
             self.device.cmd_bind_descriptor_sets(
                 frame_data.command_buffer,
@@ -456,15 +432,40 @@ impl Renderer {
                 &[],
             );
 
-
-            self.device.cmd_draw_indexed(
+            self.device.cmd_push_constants(
                 frame_data.command_buffer,
-                mesh_buffers.indices.len() as u32,
-                1,
+                self.graphics_pipeline[0].pipeline_layout,
+                ShaderStageFlags::VERTEX,
                 0,
-                0,
-                0,
+                matrix_bytes,
             );
+
+            for mesh_buffer in mesh_buffers {
+                self.device
+                    .cmd_set_scissor(frame_data.command_buffer, 0, &[mesh_buffer.scissors]);
+                let vertex_buffer = vec![mesh_buffer.vertex_buffer.buffer];
+                self.device.cmd_bind_vertex_buffers(
+                    frame_data.command_buffer,
+                    0,
+                    &vertex_buffer,
+                    &[0],
+                );
+                self.device.cmd_bind_index_buffer(
+                    frame_data.command_buffer,
+                    mesh_buffer.indices_buffer.buffer,
+                    0,
+                    IndexType::UINT32,
+                );
+                self.device.cmd_draw_indexed(
+                    frame_data.command_buffer,
+                    mesh_buffer.indices.len() as u32,
+                    1,
+                    0,
+                    0,
+                    0,
+                );
+            }
+
             self.device.cmd_end_render_pass(frame_data.command_buffer);
             self.device
                 .end_command_buffer(frame_data.command_buffer)

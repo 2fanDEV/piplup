@@ -11,7 +11,7 @@ use egui_winit::{EventResponse, State};
 use log::debug;
 use winit::{
     event::WindowEvent,
-    window::{Theme, Window},
+    window::{self, Theme, Window},
 };
 
 use crate::components::{
@@ -33,8 +33,9 @@ pub struct MeshBuffers {
     pub indices_buffer: VkBuffer,
     pub indices: Vec<u32>,
     pub vertices: Vec<Vertex2D>,
+    pub texture_id: u64,
     pub scissors: Rect2D,
-    pub viewport: Viewport
+    pub viewport: Viewport,
 }
 
 impl MeshBuffers {
@@ -68,7 +69,8 @@ impl MeshBuffers {
             vertices: mesh.vertices,
             indices: mesh.indices,
             scissors: mesh.scissors,
-            viewport: mesh.viewport
+            viewport: mesh.viewport,
+            texture_id: mesh.texture_id,
         })
     }
 }
@@ -170,12 +172,8 @@ impl EguiIntegration {
 
                     let scissor_rect = Rect2D::default()
                         .offset(Offset2D::default().x(scissor_x).y(scissor_y))
-                        .extent(
-                            Extent2D::default()
-                                .width(scissor_width)
-                                .height(scissor_height),
-                        ); // Use clamped_width/height if clamping to render area
-                    
+                        .extent(extent); // Use clamped_width/height if clamping to render area
+
                     let viewport = Viewport::default()
                         .height(clip_rect.height())
                         .width(clip_rect.width());
@@ -185,7 +183,7 @@ impl EguiIntegration {
                         indices,
                         texture_id,
                         scissors: scissor_rect,
-                        viewport
+                        viewport,
                     });
                 }
                 Primitive::Callback(paint_callback) => todo!(),
