@@ -13,7 +13,6 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
 use cgmath::Matrix4;
-use winit::window;
 
 use super::{
     device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,
@@ -264,11 +263,11 @@ fn create_color_blending_attachment_state() -> PipelineColorBlendAttachmentState
                 | ColorComponentFlags::A,
         )
         .blend_enable(true)
-        .src_color_blend_factor(BlendFactor::ONE)
-        .dst_color_blend_factor(BlendFactor::ZERO)
+        .src_color_blend_factor(BlendFactor::SRC_ALPHA)
+        .dst_color_blend_factor(BlendFactor::ONE_MINUS_SRC_ALPHA)
         .color_blend_op(BlendOp::ADD)
         .src_alpha_blend_factor(BlendFactor::ONE)
-        .dst_color_blend_factor(BlendFactor::ZERO)
+        .dst_color_blend_factor(BlendFactor::ONE_MINUS_SRC_ALPHA)
         .alpha_blend_op(BlendOp::ADD)
 }
 

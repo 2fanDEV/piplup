@@ -9,6 +9,7 @@ use ash::vk::{
 
 use super::{device::VkDevice, sampler::VkSampler};
 
+#[derive(Debug)]
 pub struct DescriptorSetDetails {
     descriptor_set: DescriptorSet,
     pub layout: DescriptorSetLayout,
@@ -72,7 +73,7 @@ impl DescriptorAllocator {
 
     pub fn get_descriptors(
         &self,
-        image_view: ImageView,
+        image_view: &ImageView,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
         sampler: Option<VkSampler>,

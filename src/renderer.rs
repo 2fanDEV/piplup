@@ -1,17 +1,17 @@
-use std::{io::Error, ops::Add, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, io::Error, ops::Add, sync::Arc};
 
 use ash::{
     ext::debug_utils,
     vk::{
         ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, Fence,
-        ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PresentInfoKHR,
-        Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, Viewport,
+        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorSetLayout, DescriptorType,
+        Extent2D, Fence, ImageCreateInfo, ImageLayout, IndexType, Offset2D, PipelineBindPoint,
+        PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Semaphore,
+        ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
     },
 };
 use cgmath::Matrix4;
-use egui::{Color32, RichText, WidgetText};
+use egui::{Color32, FullOutput, ImageData, ImageSource, RichText, TextureId, WidgetText};
 use log::{debug, error};
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
@@ -23,7 +23,7 @@ use crate::{
         allocated_image::AllocatedImage,
         buffers::VkFrameBuffer,
         command_buffers::VkCommandPool,
-        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        descriptors::{self, DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
         device::{self, VkDevice},
         frame_data::FrameData,
         image_util::image_transition,
@@ -32,11 +32,14 @@ use crate::{
         pipeline::{ShaderInformation, VkPipeline},
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
-        sampler::VkSampler,
+        sampler::{self, VkSampler},
         surface,
         swapchain::{ImageDetails, KHRSwapchain},
     },
-    egui::integration::{EguiIntegration, MeshBuffers},
+    egui::{
+        image_information_data::TextureInformationData,
+        integration::{EguiIntegration, MeshBuffers},
+    },
 };
 
 #[allow(unused)]
@@ -55,6 +58,7 @@ pub struct Renderer {
     egui_descriptor_allocator: DescriptorAllocator,
     egui_descriptor_set_details: DescriptorSetDetails,
     allocated_image: AllocatedImage,
+    font_id: TextureId,
     font_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
     viewports: Vec<Viewport>,
@@ -153,39 +157,7 @@ impl Renderer {
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
         }
-        let mut integration = EguiIntegration::new(window);
-        let full_output = integration.run(
-            |ctx| {
-                egui::Window::new(WidgetText::default())
-                    .open(&mut true)
-                    .vscroll(false)
-                    .resizable(true)
-                    .default_size([1200.0, 1200.0])
-                    .show(&ctx, |ui| {
-                        ui.label("Hello world!");
-                        if ui.button("Click me").clicked() {
-                            debug!("CLICKED");
-                        }
-                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
-                            debug!("WHAT THE HEEEEELL");
-                        }
-                    });
-            },
-            window,
-        );
 
-        let font_image = match integration.get_fonts() {
-            Some(fonts) => memory_allocator.create_font_image(
-                &[graphics_queue.clone()],
-                fonts.image(),
-                &command_pool,
-            ),
-            None => {
-                error!("Failed to create FontImage as EGUI integration has not been run yet once!");
-                Err("EguiIntegration not run yet once!")
-            } // TODO
-        }
-        .unwrap();
         let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
         let egui_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
@@ -195,12 +167,60 @@ impl Renderer {
                 1.0,
             )],
         );
-        let egui_descriptor_set_details_font = egui_descriptor_allocator.get_descriptors(
-            font_image.image_view,
-            ShaderStageFlags::FRAGMENT,
-            DescriptorType::COMBINED_IMAGE_SAMPLER,
-            Some(egui_sampler.clone()),
-        )?;
+
+        let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
+        let mut integration = EguiIntegration::new(window);
+        while let full_output = integration.run(
+            |ctx| {
+                egui::Window::new(WidgetText::default().strong())
+                    .open(&mut true)
+                    .vscroll(false)
+                    .resizable(true)
+                    .default_size([1200.0, 1200.0])
+                    .show(&ctx, |ui| {
+                        ui.label("Hello world!");
+                        ui.spacing();
+                        ui.spinner();
+                        if ui.button("Click me").clicked() {
+                            debug!("CLICKED");
+                        }
+                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
+                            debug!("WHAT THE HEEEEELL");
+                        }
+                    });
+            },
+            window,
+        ) {
+            let textures_delta_set = full_output.textures_delta.set;
+            if textures_delta_set.len() == 0 {
+                break;
+            }
+            for delta in textures_delta_set {
+                texture_informations.insert(
+                    delta.0,
+                    TextureInformationData::new(
+                        full_output,
+                        delta,
+                        |image_data| {
+                            memory_allocator
+                                .create_texture_image(&[graphics_queue], &command_pool, &image_data)
+                                .unwrap()
+                        },
+                        |allocated_image| {
+                            egui_descriptor_allocator
+                                .get_descriptors(
+                                    &allocated_image.image_view,
+                                    ShaderStageFlags::FRAGMENT,
+                                    DescriptorType::COMBINED_IMAGE_SAMPLER,
+                                    Some(egui_sampler),
+                                )
+                                .unwrap()
+                        },
+                    ),
+                );
+            }
+        }
+
         let graphics_pipeline = VkPipeline::egui_pipeline(
             vk_device.clone(),
             &[
@@ -211,7 +231,10 @@ impl Renderer {
                     "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
                 ),
             ],
-            &[egui_descriptor_set_details_font.layout],
+            &texture_informations
+                .iter()
+                .map(|entry| entry.1.descriptor_set_details.layout)
+                .collect::<Vec<DescriptorSetLayout>>(),
             &extent,
             render_pass.clone(),
         )?;
@@ -258,6 +281,7 @@ impl Renderer {
             graphics_pipeline,
             render_pass,
             allocated_image,
+            font_id: font_id.0,
             font_image,
             framebuffers,
             image_details,
@@ -306,16 +330,18 @@ impl Renderer {
 
             let full_output = self.integration.run(
                 |ctx| {
-                    egui::Window::new(WidgetText::default())
+                    egui::Window::new(WidgetText::default().strong())
                         .open(&mut true)
-                        .vscroll(false)
+                        .vscroll(true)
                         .resizable(true)
-                        .default_size([1200.0, 1200.0])
                         .show(&ctx, |ui| {
                             ui.label("Hello world!");
                             if ui.button("Click me").clicked() {
                                 debug!("CLICKED");
                             }
+                            ui.image(egui::include_image!(
+                                "/Users/zapzap/Projects/piplup/shaders/ferris.svg"
+                            ));
                             if ui.button("WHAT THE HEEEEEEELLL").clicked() {
                                 debug!("WHAT THE HEEEEELL");
                             }
@@ -337,7 +363,6 @@ impl Renderer {
                     .unwrap()
                 })
                 .collect();
-
             self.record_command_buffer(frame_data, &image_index, &self.mesh_buffers, window);
             let stage_masks = vec![
                 PipelineStageFlags::VERTEX_SHADER,
@@ -409,10 +434,7 @@ impl Renderer {
             let ty = -1.0;
 
             let clip_matrix = Matrix4::new(
-                sx, 0.0, 0.0, 0.0,
-                0.0, sy, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                tx, ty, 0.0, 1.0,
+                sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, 0.0, 1.0,
             );
             let matrix_array: &[[f32; 4]; 4] = clip_matrix.as_ref();
 
@@ -423,15 +445,6 @@ impl Renderer {
             let matrix_bytes: &[u8] =
                 std::slice::from_raw_parts(matrix_ptr as *const u8, size_of::<Matrix4<f32>>());
 
-            self.device.cmd_bind_descriptor_sets(
-                frame_data.command_buffer,
-                PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline[0].pipeline_layout,
-                0,
-                &[*self.egui_descriptor_set_details],
-                &[],
-            );
-
             self.device.cmd_push_constants(
                 frame_data.command_buffer,
                 self.graphics_pipeline[0].pipeline_layout,
@@ -441,6 +454,17 @@ impl Renderer {
             );
 
             for mesh_buffer in mesh_buffers {
+                debug!("{:?}", mesh_buffer.texture_id);
+                if mesh_buffer.texture_id == self.font_id {
+                    self.device.cmd_bind_descriptor_sets(
+                        frame_data.command_buffer,
+                        PipelineBindPoint::GRAPHICS,
+                        self.graphics_pipeline[0].pipeline_layout,
+                        0,
+                        &[*self.egui_descriptor_set_details],
+                        &[],
+                    );
+                }
                 self.device
                     .cmd_set_scissor(frame_data.command_buffer, 0, &[mesh_buffer.scissors]);
                 let vertex_buffer = vec![mesh_buffer.vertex_buffer.buffer];

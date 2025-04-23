@@ -1,11 +1,11 @@
-use std::{io::Error, ops::Deref, sync::Arc};
+use std::{any::Any, io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
     BufferCreateInfo, BufferUsageFlags, Extent3D, Format, Image, ImageAspectFlags,
     ImageCreateFlags, ImageCreateInfo, ImageLayout, ImageUsageFlags, ImageViewCreateFlags,
     ImageViewCreateInfo, MemoryPropertyFlags, MemoryType, SharingMode,
 };
-use egui::FontImage;
+use egui::{Color32, FontImage, ImageData};
 use log::debug;
 use vk_mem::{
     Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
@@ -88,25 +88,31 @@ impl MemoryAllocator {
         );
         Ok(allocated_image)
     }
-
-    pub fn create_font_image(
+    
+    pub fn create_texture_image(
         &self,
         queues: &[Arc<VkQueue>],
-        font_image: FontImage,
         command_pool: &VkCommandPool,
+        image_data: &ImageData,
     ) -> Result<AllocatedImage, &str> {
+
+        let pixels = match image_data {
+            ImageData::Color(color_image) => color_image.pixels.clone(),
+            ImageData::Font(font_image) => font_image.srgba_pixels(None).collect::<Vec<Color32>>()  
+        };
+    
         let staging_buffer = self
             .staging_buffer(
-                (size_of::<f32>() * font_image.pixels.len()) as u64,
-                &font_image.pixels,
+                (size_of::<f32>() * pixels.len()) as u64,
+                &pixels,
                 queues,
             )
             .unwrap();
 
 
         let extent = Extent3D::default()
-            .height(font_image.height() as u32)
-            .width(font_image.width() as u32)
+            .height(image_data.height() as u32)
+            .width(image_data.width() as u32)
             .depth(1);
         let image_info = image_create_info(
             Format::R8G8B8A8_SRGB,

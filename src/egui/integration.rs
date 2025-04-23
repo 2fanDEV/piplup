@@ -3,9 +3,7 @@ use std::{io::Error, ops::Deref, sync::Arc};
 use ash::vk::{BufferUsageFlags, Extent2D, MemoryPropertyFlags, Offset2D, Rect2D, Viewport};
 use cgmath::{Vector2, Vector4};
 use egui::{
-    epaint::{Primitive, TextureAtlas},
-    text::Fonts,
-    ClippedPrimitive, Context, FullOutput, TexturesDelta, ViewportId,
+    epaint::{Primitive, TextureAtlas}, load::ImageLoader, text::Fonts, ClippedPrimitive, Context, FullOutput, TextureId, TexturesDelta, ViewportId
 };
 use egui_winit::{EventResponse, State};
 use log::debug;
@@ -22,7 +20,7 @@ use crate::components::{
 pub struct Mesh {
     pub vertices: Vec<Vertex2D>,
     pub indices: Vec<u32>,
-    pub texture_id: u64,
+    pub texture_id: TextureId,
     pub scissors: Rect2D,
     pub viewport: Viewport,
 }
@@ -33,7 +31,7 @@ pub struct MeshBuffers {
     pub indices_buffer: VkBuffer,
     pub indices: Vec<u32>,
     pub vertices: Vec<Vertex2D>,
-    pub texture_id: u64,
+    pub texture_id: TextureId,
     pub scissors: Rect2D,
     pub viewport: Viewport,
 }
@@ -82,14 +80,17 @@ pub struct EguiIntegration {
 
 impl EguiIntegration {
     pub fn new(window: &Window) -> Self {
+        let context = Context::default();
+        egui_extras::install_image_loaders(&context);
         let state = State::new(
-            Context::default(),
+            context,
             ViewportId::ROOT,
             window,
             Some(2.0 * window.scale_factor() as f32),
             Some(Theme::Dark),
             Some(1024 * 4),
         );
+
 
         Self {
             state,
@@ -104,6 +105,7 @@ impl EguiIntegration {
     pub fn run(&mut self, run_ui: impl FnMut(&Context), window: &Window) -> FullOutput {
         let raw_input = self.state.take_egui_input(window);
         let output = self.state.egui_ctx().run(raw_input.clone(), run_ui);
+        debug!("{:?}", output.textures_delta);
         self.has_run = true;
         self.state
             .handle_platform_output(window, output.platform_output.clone());
@@ -117,6 +119,7 @@ impl EguiIntegration {
             None
         }
     }
+
 
     #[allow(unused)]
     pub fn convert(&mut self, extent: Extent2D, output: FullOutput) -> Vec<Mesh> {
@@ -151,10 +154,6 @@ impl EguiIntegration {
                             )
                         })
                         .collect::<Vec<Vertex2D>>();
-                    let texture_id = match mesh.texture_id {
-                        egui::TextureId::Managed(id) => id,
-                        egui::TextureId::User(id) => id,
-                    };
                     let scale_factor = self.state.egui_ctx().pixels_per_point(); // egui provides scale factor
 
                     let clip_min_x = (clip_rect.min.x * scale_factor).round() as i32;
@@ -181,7 +180,7 @@ impl EguiIntegration {
                     meshes.push(Mesh {
                         vertices,
                         indices,
-                        texture_id,
+                        texture_id: mesh.texture_id,
                         scissors: scissor_rect,
                         viewport,
                     });
