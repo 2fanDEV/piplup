@@ -5,6 +5,8 @@ use ash::vk::{
 };
 use cgmath::{Vector2, Vector4};
 
+use crate::VertexAttributes;
+
 #[derive(Debug, Clone)]
 pub struct Vertex2D {
     pub pos: Vector2<f32>,
@@ -12,23 +14,16 @@ pub struct Vertex2D {
     pub color: Vector4<u8>,
 }
 
-impl Vertex2D {
-    pub fn new(pos: Vector2<f32>, color: Vector4<u8>, texture_coords: Vector2<f32>) -> Self {
-        Vertex2D {
-            pos,
-            color,
-            texture_coords,
-        }
-    }
+impl VertexAttributes for Vertex2D {
 
-    pub fn get_binding_description() -> Vec<VertexInputBindingDescription> {
+    fn get_binding_description() -> Vec<VertexInputBindingDescription> {
         vec![VertexInputBindingDescription::default()
             .binding(0)
             .stride(size_of::<Vertex2D>() as u32)
             .input_rate(VertexInputRate::VERTEX)]
     }
 
-    pub fn get_attribute_description() -> Vec<VertexInputAttributeDescription> {
+    fn get_attribute_description() -> Vec<VertexInputAttributeDescription> {
         let mut attribute_descriptons: [VertexInputAttributeDescription; 3] =
             [Default::default(); 3];
         attribute_descriptons[0] = attribute_descriptons[0]

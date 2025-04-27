@@ -13,6 +13,9 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
 use cgmath::Matrix4;
+use egui::epaint::Vertex;
+
+use crate::VertexAttributes;
 
 use super::{
     device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,
@@ -50,8 +53,8 @@ impl ShaderInformation {
             shader_file_path,
             stages: ShaderStageFlags::VERTEX,
             entry_point: String::from("main"),
-            vertex_binding_description: Vertex2D::get_binding_description(),
-            vertex_attribute_description: Vertex2D::get_attribute_description(),
+            vertex_binding_description: Vertex::get_binding_description(),
+            vertex_attribute_description: Vertex::get_attribute_description(),
         }
     }
 
@@ -88,50 +91,24 @@ impl Deref for VkPipeline {
 }
 
 impl VkPipeline {
-    pub fn compute_pipelines(
+    pub fn create_new_pipeline<T>(
         device: Arc<VkDevice>,
-        layouts: &[DescriptorSetLayout],
-        shader_file_path: &str,
-    ) -> Result<Vec<VkPipeline>, Error> {
-        let create_info = PipelineLayoutCreateInfo::default().set_layouts(layouts);
-        let pipeline_layout = unsafe { device.create_pipeline_layout(&create_info, None).unwrap() };
-        let shader_module = load_shader_module(shader_file_path, &device.device).unwrap();
-        let shader_stage_info = PipelineShaderStageCreateInfo::default()
-            .module(shader_module)
-            .name(c"main")
-            .stage(ShaderStageFlags::COMPUTE);
-
-        let pipeline_create_info = vec![ComputePipelineCreateInfo::default()
-            .stage(shader_stage_info)
-            .layout(pipeline_layout)];
-        let pipelines = unsafe {
-            device.create_compute_pipelines(PipelineCache::null(), &pipeline_create_info, None)
-        }
-        .unwrap()
-        .into_iter()
-        .map(|pipeline| VkPipeline {
-            pipeline,
-            pipeline_layout,
-            device: device.clone(),
-            pipeline_type: PipelineType::COMPUTE,
-        })
-        .collect::<Vec<VkPipeline>>();
-
-        Ok(pipelines)
-    }
-
-    pub fn egui_pipeline(
-        device: Arc<VkDevice>,
+        dynamic_state_list: &[DynamicState],
+        topology: PrimitiveTopology,
+        shader_stage_flags: ShaderStageFlags,
         shader_information: &[ShaderInformation],
-        layouts: &[DescriptorSetLayout],
+        layouts: Option<&[DescriptorSetLayout]>,
         extent: &Extent2D,
+        push_constant_range_type: Option<T>,
+        vertex_binding_description: Vec<VertexInputBindingDescription>,
+        vertex_attribute_description: Vec<VertexInputAttributeDescription>,
+        color_attachment: &[PipelineColorBlendAttachmentState],
+        rasterizer_info: PipelineRasterizationStateCreateInfo,
+        multisampling_info: PipelineMultisampleStateCreateInfo,
         render_pass: Arc<VkRenderPass>,
     ) -> Result<Vec<VkPipeline>, Error> {
-        let dynamic_states_create_info =
-            dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
+        let dynamic_states_create_info = dynamic_states(dynamic_state_list);
         let mut pipeline_stage_create_info: Vec<PipelineShaderStageCreateInfo> = Vec::new();
-        let vertex_binding_description: Vec<VertexInputBindingDescription> = Vertex2D::get_binding_description();
-        let vertex_attribute_description: Vec<VertexInputAttributeDescription> = Vertex2D::get_attribute_description();
         for information in shader_information {
             let shader_module = load_shader_module(&information.shader_file_path, &device)?;
             pipeline_stage_create_info.push(
@@ -140,26 +117,31 @@ impl VkPipeline {
                     .module(shader_module)
                     .stage(information.stages),
             );
-        }       
+        }
         let vertex_input_state = PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&vertex_binding_description)
             .vertex_attribute_descriptions(&vertex_attribute_description);
         let input_assembly_state = PipelineInputAssemblyStateCreateInfo::default()
-            .topology(PrimitiveTopology::TRIANGLE_LIST)
+            .topology(topology)
             .primitive_restart_enable(false);
         let viewports = [create_viewport(extent)];
         let scissors = [create_scissor(extent)];
         let viewport_state = create_pipeline_viewport_state(&viewports, &scissors);
-        let rasterizer_info = create_rasterizer_state();
-        let multisamping_info = create_multisampling_state();
-        let color_blending_attachments = [create_color_blending_attachment_state()];
+        let rasterizer_info = rasterizer_info;
+        let multisamping_info = multisampling_info;
+        let color_blending_attachments = color_attachment;
 
-        let push_constant_ranges = vec![PushConstantRange::default()
-            .stage_flags(ShaderStageFlags::VERTEX)
-            .size(size_of::<Matrix4<f32>>() as u32)];
-        let pipeline_layout_create_info =
-            PipelineLayoutCreateInfo::default().push_constant_ranges(&push_constant_ranges)
-            .set_layouts(layouts);
+        let mut pipeline_layout_create_info = PipelineLayoutCreateInfo::default();
+        let mut push_constant_range :Vec<PushConstantRange> = vec![];
+        if push_constant_range_type.is_some() {
+        push_constant_range.push(PushConstantRange::default()
+                .stage_flags(shader_stage_flags)
+                .size(size_of::<T>() as u32));
+            pipeline_layout_create_info = pipeline_layout_create_info.push_constant_ranges(&push_constant_range);
+        }
+        if layouts.is_some() {
+            pipeline_layout_create_info = pipeline_layout_create_info.set_layouts(layouts.unwrap());
+        }
         let pipeline_layout = unsafe {
             device
                 .create_pipeline_layout(&pipeline_layout_create_info, None)
@@ -201,9 +183,41 @@ impl VkPipeline {
 
         Ok(pipelines)
     }
+
+    pub fn compute_pipelines(
+        device: Arc<VkDevice>,
+        layouts: &[DescriptorSetLayout],
+        shader_file_path: &str,
+    ) -> Result<Vec<VkPipeline>, Error> {
+        let create_info = PipelineLayoutCreateInfo::default().set_layouts(layouts);
+        let pipeline_layout = unsafe { device.create_pipeline_layout(&create_info, None).unwrap() };
+        let shader_module = load_shader_module(shader_file_path, &device.device).unwrap();
+        let shader_stage_info = PipelineShaderStageCreateInfo::default()
+            .module(shader_module)
+            .name(c"main")
+            .stage(ShaderStageFlags::COMPUTE);
+
+        let pipeline_create_info = vec![ComputePipelineCreateInfo::default()
+            .stage(shader_stage_info)
+            .layout(pipeline_layout)];
+        let pipelines = unsafe {
+            device.create_compute_pipelines(PipelineCache::null(), &pipeline_create_info, None)
+        }
+        .unwrap()
+        .into_iter()
+        .map(|pipeline| VkPipeline {
+            pipeline,
+            pipeline_layout,
+            device: device.clone(),
+            pipeline_type: PipelineType::COMPUTE,
+        })
+        .collect::<Vec<VkPipeline>>();
+
+        Ok(pipelines)
+    }
 }
 
-fn dynamic_states<'a>(states: &'a [DynamicState]) -> PipelineDynamicStateCreateInfo<'a> {
+pub fn dynamic_states<'a>(states: &'a [DynamicState]) -> PipelineDynamicStateCreateInfo<'a> {
     PipelineDynamicStateCreateInfo::default().dynamic_states(states)
 }
 
@@ -223,7 +237,7 @@ pub fn create_scissor(extent: &Extent2D) -> Rect2D {
         .extent(*extent)
 }
 
-fn create_pipeline_viewport_state<'a>(
+pub fn create_pipeline_viewport_state<'a>(
     viewports: &'a [Viewport],
     scissors: &'a [Rect2D],
 ) -> PipelineViewportStateCreateInfo<'a> {
@@ -232,46 +246,60 @@ fn create_pipeline_viewport_state<'a>(
         .viewports(viewports)
 }
 
-fn create_rasterizer_state<'a>() -> PipelineRasterizationStateCreateInfo<'a> {
+pub fn create_rasterizer_state<'a>(
+    polygon_mode: PolygonMode,
+    cull_mode: CullModeFlags,
+    front_face: FrontFace,
+) -> PipelineRasterizationStateCreateInfo<'a> {
     PipelineRasterizationStateCreateInfo::default()
         .depth_bias_enable(false)
         .rasterizer_discard_enable(false)
         .line_width(1.0)
-        .polygon_mode(PolygonMode::FILL)
-        .cull_mode(CullModeFlags::NONE)
-        .front_face(FrontFace::CLOCKWISE)
+        .polygon_mode(polygon_mode)
+        .cull_mode(cull_mode)
+        .front_face(front_face)
         .depth_bias_constant_factor(0.0)
         .depth_bias_slope_factor(0.0)
         .depth_bias_clamp(0.0)
 }
 
-fn create_multisampling_state<'a>() -> PipelineMultisampleStateCreateInfo<'a> {
+pub fn create_multisampling_state<'a>(
+    samping_shading_enabled: bool,
+    rasterization_sampls: SampleCountFlags,
+    min_simple_shading: f32,
+    alpha_to_one_enable: bool,
+    alpha_to_coverage_enable: bool,
+) -> PipelineMultisampleStateCreateInfo<'a> {
     PipelineMultisampleStateCreateInfo::default()
-        .sample_shading_enable(false)
-        .rasterization_samples(SampleCountFlags::TYPE_1)
-        .min_sample_shading(1.0)
-        .alpha_to_one_enable(false)
-        .alpha_to_coverage_enable(false)
+        .sample_shading_enable(samping_shading_enabled)
+        .rasterization_samples(rasterization_sampls)
+        .min_sample_shading(min_simple_shading)
+        .alpha_to_one_enable(alpha_to_one_enable)
+        .alpha_to_coverage_enable(alpha_to_coverage_enable)
 }
 
-fn create_color_blending_attachment_state() -> PipelineColorBlendAttachmentState {
+pub fn create_color_blending_attachment_state(
+    color_write_mask: ColorComponentFlags,
+    blend_enable: bool,
+    src_color_blend_factor: BlendFactor,
+    dst_color_blend_factor: BlendFactor,
+    color_blend_op: BlendOp,
+    src_alpha_blend_factor: BlendFactor,
+    dst_alpha_blend_factor: BlendFactor,
+    alpha_blend_op: BlendOp,
+) -> PipelineColorBlendAttachmentState {
     PipelineColorBlendAttachmentState::default()
-        .color_write_mask(
-            ColorComponentFlags::R
-                | ColorComponentFlags::G
-                | ColorComponentFlags::B
-                | ColorComponentFlags::A,
-        )
-        .blend_enable(true)
-        .src_color_blend_factor(BlendFactor::SRC_ALPHA)
-        .dst_color_blend_factor(BlendFactor::ONE_MINUS_SRC_ALPHA)
-        .color_blend_op(BlendOp::ADD)
-        .src_alpha_blend_factor(BlendFactor::ONE)
-        .dst_color_blend_factor(BlendFactor::ONE_MINUS_SRC_ALPHA)
-        .alpha_blend_op(BlendOp::ADD)
+        .color_write_mask(color_write_mask)
+        .blend_enable(blend_enable)
+        .src_color_blend_factor(src_color_blend_factor)
+        .dst_color_blend_factor(dst_color_blend_factor)
+        .color_blend_op(color_blend_op)
+        .src_alpha_blend_factor(src_alpha_blend_factor)
+        .dst_alpha_blend_factor(dst_alpha_blend_factor)
+        .alpha_blend_op(alpha_blend_op)
 }
 
-fn create_color_blending_state(
+pub fn create_color_blending_state(
     attachments: &[PipelineColorBlendAttachmentState],
 ) -> PipelineColorBlendStateCreateInfo {
     PipelineColorBlendStateCreateInfo::default()

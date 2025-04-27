@@ -1,38 +1,46 @@
-use std::{borrow::Cow, collections::HashMap, io::Error, ops::Add, sync::Arc};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 
+use anyhow::{anyhow, Error};
+use ash::vk::{
+    BlendFactor, BlendOp, ColorComponentFlags, CullModeFlags, DynamicState, FrontFace, ImageLayout,
+    PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, SampleCountFlags,
+};
 use ash::{
     ext::debug_utils,
     vk::{
         ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorSetLayout, DescriptorType,
-        Extent2D, Fence, ImageCreateInfo, ImageLayout, IndexType, Offset2D, PipelineBindPoint,
-        PipelineStageFlags, PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Semaphore,
-        ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
+        Extent2D, Fence, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags,
+        PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags,
+        SubmitInfo, SubpassContents, Viewport,
     },
 };
-use cgmath::Matrix4;
-use egui::{Color32, FullOutput, ImageData, ImageSource, RichText, TextureId, WidgetText};
+use cgmath::{Matrix4, SquareMatrix};
+use egui::epaint::Vertex;
+use egui::{TextureId, WidgetText};
 use log::{debug, error};
+use thiserror::Error;
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
 
+use crate::components::pipeline::{self, create_multisampling_state, create_rasterizer_state};
+use crate::VertexAttributes;
 use crate::{
     components::{
         allocated_image::AllocatedImage,
         buffers::VkFrameBuffer,
         command_buffers::VkCommandPool,
-        descriptors::{self, DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        descriptors::{DescriptorAllocator, PoolSizeRatio},
         device::{self, VkDevice},
         frame_data::FrameData,
-        image_util::image_transition,
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
         pipeline::{ShaderInformation, VkPipeline},
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
-        sampler::{self, VkSampler},
+        sampler::VkSampler,
         surface,
         swapchain::{ImageDetails, KHRSwapchain},
     },
@@ -54,12 +62,11 @@ pub struct Renderer {
     render_pass: Arc<VkRenderPass>,
     memory_allocator: Arc<MemoryAllocator>,
     graphics_pipeline: Vec<VkPipeline>,
-    egui_sampler: VkSampler,
+    egui_font_sampler: VkSampler,
+    egui_texture_sampler: VkSampler,
     egui_descriptor_allocator: DescriptorAllocator,
-    egui_descriptor_set_details: DescriptorSetDetails,
+    texture_informations: HashMap<TextureId, TextureInformationData>,
     allocated_image: AllocatedImage,
-    font_id: TextureId,
-    font_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
@@ -86,6 +93,14 @@ impl ImageIndex {
             recreate_swapchain: input.1,
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum RendererError {
+    #[error("{0} is not managed yet by the renderer!")]
+    NotManaged(String),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 impl Renderer {
@@ -158,7 +173,8 @@ impl Renderer {
             frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
         }
 
-        let egui_sampler = VkSampler::get_font_sampler(vk_device.clone());
+        let egui_font_sampler = VkSampler::get_font_sampler(vk_device.clone());
+        let egui_texture_sampler = VkSampler::get_texture_sampler(vk_device.clone());
         let egui_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             10,
@@ -170,22 +186,24 @@ impl Renderer {
 
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
+
+        #[allow(irrefutable_let_patterns)]
         while let full_output = integration.run(
             |ctx| {
                 egui::Window::new(WidgetText::default().strong())
                     .open(&mut true)
-                    .vscroll(false)
+                    .vscroll(true)
                     .resizable(true)
-                    .default_size([1200.0, 1200.0])
                     .show(&ctx, |ui| {
                         ui.label("Hello world!");
-                        ui.spacing();
-                        ui.spinner();
                         if ui.button("Click me").clicked() {
                             debug!("CLICKED");
                         }
-                        if ui.button("WHAT THE HEEEEEEELLL").clicked() {
-                            debug!("WHAT THE HEEEEELL");
+                        ui.image(egui::include_image!(
+                            "/Users/zapzap/Projects/piplup/shaders/ferris.png"
+                        ));
+                        if ui.button("WTF").clicked() {
+                            debug!("WTF");
                         }
                     });
             },
@@ -195,34 +213,64 @@ impl Renderer {
             if textures_delta_set.len() == 0 {
                 break;
             }
+
             for delta in textures_delta_set {
+                debug!("DELTA: {:?}", delta.0);
                 texture_informations.insert(
                     delta.0,
                     TextureInformationData::new(
-                        full_output,
-                        delta,
+                        delta.clone(),
                         |image_data| {
                             memory_allocator
-                                .create_texture_image(&[graphics_queue], &command_pool, &image_data)
+                                .create_texture_image(
+                                    &[graphics_queue.clone()],
+                                    &command_pool,
+                                    &image_data,
+                                )
                                 .unwrap()
                         },
                         |allocated_image| {
-                            egui_descriptor_allocator
+                            let mut binding;
+                            let mut dst_binding: u32;
+let sampler =  match delta.0 {
+                                        TextureId::Managed(id) => match id {
+                                            0 => {
+                                                binding = 0;
+                                                dst_binding=0;
+                                                Some(egui_font_sampler.clone())
+                                            },
+                                            _ => {
+                                                binding = 0; 
+                                                dst_binding = 1;
+                                                Some(egui_texture_sampler.clone())
+                                            }
+                                        },
+                                        TextureId::User(_) => {
+                                           return Err(anyhow!(RendererError::NotManaged(String::from(
+                                                "User handled texture data",
+                                            ))));
+                                        }
+                            }               ;
+                            Ok(egui_descriptor_allocator
                                 .get_descriptors(
                                     &allocated_image.image_view,
                                     ShaderStageFlags::FRAGMENT,
                                     DescriptorType::COMBINED_IMAGE_SAMPLER,
-                                    Some(egui_sampler),
-                                )
-                                .unwrap()
+                                    sampler,
+                                    binding,
+                                    dst_binding
+                                ).unwrap())
                         },
                     ),
                 );
             }
         }
 
-        let graphics_pipeline = VkPipeline::egui_pipeline(
+        let graphics_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
+            &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
+            PrimitiveTopology::TRIANGLE_LIST,
+            ShaderStageFlags::VERTEX,
             &[
                 ShaderInformation::vertex_2d_information(
                     "/Users/zapzap/Projects/piplup/shaders/2D_vertex_shader.spv".to_string(),
@@ -230,28 +278,39 @@ impl Renderer {
                 ShaderInformation::fragment_2d_information(
                     "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
                 ),
+                ShaderInformation::fragment_2d_information(
+                    "/Users/zapzap/Projects/piplup/shaders/2D_texture_fragment_shader.spv"
+                        .to_string(),
+                ),
             ],
-            &texture_informations
-                .iter()
-                .map(|entry| entry.1.descriptor_set_details.layout)
-                .collect::<Vec<DescriptorSetLayout>>(),
+            Some(
+                &texture_informations
+                    .iter()
+                    .map(|entry| entry.1.descriptor_set_details.layout)
+                    .collect::<Vec<DescriptorSetLayout>>(),
+            ),
             &extent,
+            Some(Matrix4::<f32>::identity()),
+            Vertex::get_binding_description(),
+            Vertex::get_attribute_description(),
+            &[pipeline::create_color_blending_attachment_state(
+                ColorComponentFlags::R
+                    | ColorComponentFlags::G
+                    | ColorComponentFlags::B
+                    | ColorComponentFlags::A,
+                true,
+                BlendFactor::SRC_ALPHA,
+                BlendFactor::ONE_MINUS_SRC_ALPHA,
+                BlendOp::ADD,
+                BlendFactor::SRC_ALPHA,
+                BlendFactor::ONE_MINUS_SRC_ALPHA,
+                BlendOp::ADD,
+            )],
+            create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
+            create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
         )?;
 
-        let mesh_buffers: Vec<MeshBuffers> = integration
-            .convert(extent, full_output)
-            .into_iter()
-            .map(|mesh| {
-                MeshBuffers::new(
-                    mesh,
-                    &memory_allocator,
-                    graphics_queue.clone(),
-                    &command_pool,
-                )
-                .unwrap()
-            })
-            .collect();
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
             .extent(extent.clone());
@@ -277,21 +336,20 @@ impl Renderer {
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
             egui_descriptor_allocator,
-            egui_descriptor_set_details: egui_descriptor_set_details_font,
             graphics_pipeline,
             render_pass,
             allocated_image,
-            font_id: font_id.0,
-            font_image,
+            texture_informations,
             framebuffers,
             image_details,
-            egui_sampler,
+            egui_font_sampler,
+            egui_texture_sampler,
             memory_allocator,
             frame_data,
             frame_idx: 0,
             render_area,
             integration,
-            mesh_buffers,
+            mesh_buffers: vec![],
             command_pool,
             viewports,
             scissors,
@@ -340,7 +398,7 @@ impl Renderer {
                                 debug!("CLICKED");
                             }
                             ui.image(egui::include_image!(
-                                "/Users/zapzap/Projects/piplup/shaders/ferris.svg"
+                                "/Users/zapzap/Projects/piplup/shaders/ferris.png"
                             ));
                             if ui.button("WHAT THE HEEEEEEELLL").clicked() {
                                 debug!("WHAT THE HEEEEELL");
@@ -351,7 +409,7 @@ impl Renderer {
             );
             self.mesh_buffers = self
                 .integration
-                .convert(self.extent, full_output)
+                .convert(self.extent, &full_output)
                 .into_iter()
                 .map(|mesh| {
                     MeshBuffers::new(
@@ -454,19 +512,23 @@ impl Renderer {
             );
 
             for mesh_buffer in mesh_buffers {
-                debug!("{:?}", mesh_buffer.texture_id);
-                if mesh_buffer.texture_id == self.font_id {
+                let texture_information_data =
+                    self.texture_informations.get(&mesh_buffer.mesh.texture_id);
+                if texture_information_data.is_some() {
                     self.device.cmd_bind_descriptor_sets(
                         frame_data.command_buffer,
                         PipelineBindPoint::GRAPHICS,
                         self.graphics_pipeline[0].pipeline_layout,
                         0,
-                        &[*self.egui_descriptor_set_details],
+                        &[*texture_information_data.unwrap().descriptor_set_details],
                         &[],
                     );
                 }
-                self.device
-                    .cmd_set_scissor(frame_data.command_buffer, 0, &[mesh_buffer.scissors]);
+                self.device.cmd_set_scissor(
+                    frame_data.command_buffer,
+                    0,
+                    &[mesh_buffer.mesh.scissors],
+                );
                 let vertex_buffer = vec![mesh_buffer.vertex_buffer.buffer];
                 self.device.cmd_bind_vertex_buffers(
                     frame_data.command_buffer,
@@ -482,7 +544,7 @@ impl Renderer {
                 );
                 self.device.cmd_draw_indexed(
                     frame_data.command_buffer,
-                    mesh_buffer.indices.len() as u32,
+                    mesh_buffer.mesh.indices.len() as u32,
                     1,
                     0,
                     0,

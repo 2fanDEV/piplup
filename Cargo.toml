@@ -9,7 +9,8 @@ ash-window = "0.13.0"
 cgmath = "0.18.0"
 egui = "0.31.1"
 egui-winit = "0.31.1"
-egui_extras = { version = "0.31.1", features = ["svg"]}
+egui_extras = { version = "0.31.1", features = ["all_loaders"]}
+image = { version = "0.25", features = ["jpeg", "png"] } 
 env_logger = "0.11.8"
 log = "0.4.27"
 muda = "0.16.1"
@@ -17,3 +18,5 @@ serde = "1.0.219"
 tokio = "1.44.2"
 vk-mem = "0.4.0"
 winit = "0.30.9"
+anyhow = "1.0.98"
+thiserror = "2.0.12"

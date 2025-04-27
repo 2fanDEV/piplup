@@ -1,3 +1,4 @@
+use muda::dpi::LogicalSize;
 use winit::{
     application::ApplicationHandler,
     window::{Window, WindowAttributes},
@@ -14,7 +15,7 @@ pub struct App {
 #[allow(warnings)]
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window_attributes = WindowAttributes::default();
+        let window_attributes = WindowAttributes::default().with_inner_size(LogicalSize::new(1920, 1080));
         self.window = event_loop.create_window(window_attributes).ok();
         self.renderer = Renderer::init(&self.window.as_ref().unwrap()).ok();
     }

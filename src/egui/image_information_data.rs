@@ -1,5 +1,6 @@
 use std::{env::Args, sync::Arc};
 
+use anyhow::Error;
 use ash::Device;
 use egui::{epaint::ImageDelta, FullOutput, ImageData, TextureId};
 
@@ -17,17 +18,16 @@ pub struct TextureInformationData {
 
 impl TextureInformationData {
     pub fn new<T,D>(
-        full_output: FullOutput,
         texture_delta_tuple: (TextureId, ImageDelta),
         image_creator: T,
         descriptor_creator: D
     ) -> Self
     where
         T: FnOnce(&ImageData) -> AllocatedImage,
-        D: FnOnce(&AllocatedImage) -> DescriptorSetDetails
+        D: FnOnce(&AllocatedImage) -> Result<DescriptorSetDetails, Error>
     {
         let allocated_image = image_creator(&texture_delta_tuple.1.image);
-        let descriptor_set_details = descriptor_creator(&allocated_image);
+        let descriptor_set_details = descriptor_creator(&allocated_image).unwrap();
         Self {
             allocated_image,
             descriptor_set_details,

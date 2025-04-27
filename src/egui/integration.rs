@@ -1,24 +1,22 @@
-use std::{io::Error, ops::Deref, sync::Arc};
+use std::{io::Error, mem::offset_of, ops::Deref, sync::Arc};
 
-use ash::vk::{BufferUsageFlags, Extent2D, MemoryPropertyFlags, Offset2D, Rect2D, Viewport};
-use cgmath::{Vector2, Vector4};
+use ash::vk::{BufferUsageFlags, Extent2D, Format, MemoryPropertyFlags, Offset2D, Rect2D, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate, Viewport};
 use egui::{
-    epaint::{Primitive, TextureAtlas}, load::ImageLoader, text::Fonts, ClippedPrimitive, Context, FullOutput, TextureId, TexturesDelta, ViewportId
+    epaint::{Primitive, Vertex}, text::Fonts, ClippedPrimitive, Context, FullOutput, TextureId, ViewportId
 };
 use egui_winit::{EventResponse, State};
-use log::debug;
 use winit::{
     event::WindowEvent,
-    window::{self, Theme, Window},
+    window::{Theme, Window},
 };
 
-use crate::components::{
-    buffers::VkBuffer, command_buffers::VkCommandPool, geom::vertex::Vertex2D,
-    memory_allocator::MemoryAllocator, queue::VkQueue,
-};
+use crate::{components::{
+    buffers::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue,
+}, VertexAttributes};
 
+#[derive(Debug)]
 pub struct Mesh {
-    pub vertices: Vec<Vertex2D>,
+    pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub texture_id: TextureId,
     pub scissors: Rect2D,
@@ -29,11 +27,7 @@ pub struct Mesh {
 pub struct MeshBuffers {
     pub vertex_buffer: VkBuffer,
     pub indices_buffer: VkBuffer,
-    pub indices: Vec<u32>,
-    pub vertices: Vec<Vertex2D>,
-    pub texture_id: TextureId,
-    pub scissors: Rect2D,
-    pub viewport: Viewport,
+    pub mesh: Mesh
 }
 
 impl MeshBuffers {
@@ -64,12 +58,40 @@ impl MeshBuffers {
         Ok(Self {
             vertex_buffer,
             indices_buffer,
-            vertices: mesh.vertices,
-            indices: mesh.indices,
-            scissors: mesh.scissors,
-            viewport: mesh.viewport,
-            texture_id: mesh.texture_id,
+            mesh
         })
+    }
+}
+
+impl VertexAttributes for Vertex {
+    fn get_binding_description() -> Vec<VertexInputBindingDescription> {
+        vec![VertexInputBindingDescription::default()
+            .binding(0)
+            .stride(size_of::<Vertex>() as u32)
+            .input_rate(VertexInputRate::VERTEX)]
+    }
+
+    fn get_attribute_description() -> Vec<VertexInputAttributeDescription> {
+        let mut attribute_descriptons: [VertexInputAttributeDescription; 3] =
+            [Default::default(); 3];
+        attribute_descriptons[0] = attribute_descriptons[0]
+            .binding(0)
+            .location(0)
+            .format(Format::R32G32_SFLOAT)
+            .offset(offset_of!(Vertex, pos) as u32);
+
+        attribute_descriptons[1] = attribute_descriptons[1]
+            .binding(0)
+            .location(1)
+            .format(Format::R32G32_SFLOAT)
+            .offset(offset_of!(Vertex, uv) as u32);
+
+        attribute_descriptons[2] = attribute_descriptons[2]
+            .binding(0)
+            .location(2)
+            .format(Format::R8G8B8A8_SRGB)
+            .offset(offset_of!(Vertex, color) as u32);
+        attribute_descriptons.to_vec()
     }
 }
 
@@ -105,7 +127,6 @@ impl EguiIntegration {
     pub fn run(&mut self, run_ui: impl FnMut(&Context), window: &Window) -> FullOutput {
         let raw_input = self.state.take_egui_input(window);
         let output = self.state.egui_ctx().run(raw_input.clone(), run_ui);
-        debug!("{:?}", output.textures_delta);
         self.has_run = true;
         self.state
             .handle_platform_output(window, output.platform_output.clone());
@@ -122,11 +143,11 @@ impl EguiIntegration {
 
 
     #[allow(unused)]
-    pub fn convert(&mut self, extent: Extent2D, output: FullOutput) -> Vec<Mesh> {
+    pub fn convert(&mut self, extent: Extent2D, output: &FullOutput) -> Vec<Mesh> {
         let clipped_primitives = self
             .state
             .egui_ctx()
-            .tessellate(output.shapes, self.state.egui_ctx().pixels_per_point());
+            .tessellate(output.shapes.clone(), self.state.egui_ctx().pixels_per_point());
 
         let mut meshes: Vec<Mesh> = Vec::new();
 
@@ -137,23 +158,9 @@ impl EguiIntegration {
         {
             match primitive {
                 Primitive::Mesh(mesh) => {
+
+                    let vertices = mesh.vertices;
                     let indices = mesh.indices;
-                    let vertices = mesh
-                        .vertices
-                        .iter()
-                        .map(|vertex| {
-                            Vertex2D::new(
-                                Vector2::new(vertex.pos.x, vertex.pos.y),
-                                Vector4::new(
-                                    vertex.color.r(),
-                                    vertex.color.g(),
-                                    vertex.color.b(),
-                                    vertex.color.a(),
-                                ),
-                                Vector2::new(vertex.uv.x, vertex.uv.y),
-                            )
-                        })
-                        .collect::<Vec<Vertex2D>>();
                     let scale_factor = self.state.egui_ctx().pixels_per_point(); // egui provides scale factor
 
                     let clip_min_x = (clip_rect.min.x * scale_factor).round() as i32;

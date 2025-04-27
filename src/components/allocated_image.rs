@@ -2,7 +2,7 @@ use ash::vk::{Extent3D, Format, Image, ImageView};
 use vk_mem::Allocation;
 
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AllocatedImage {
     pub image: Image,
     pub image_view: ImageView,
