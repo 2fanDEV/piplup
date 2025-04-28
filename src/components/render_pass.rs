@@ -3,7 +3,7 @@ use std::{io::Error, ops::Deref, sync::Arc};
 use ash::vk::{
     AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
     DependencyFlags, Format, ImageLayout, PipelineBindPoint, PipelineStageFlags, RenderPass,
-    RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription, SUBPASS_EXTERNAL,
+    RenderPassCreateInfo, SampleCountFlags, SubpassDependency, SubpassDescription,
 };
 
 use super::device::VkDevice;

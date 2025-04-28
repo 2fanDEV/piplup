@@ -2,15 +2,15 @@ use std::{collections::HashMap, ops::Add, sync::Arc};
 
 use anyhow::{anyhow, Error};
 use ash::vk::{
-    BlendFactor, BlendOp, ColorComponentFlags, CullModeFlags, DescriptorSet, DynamicState,
-    FrontFace, ImageLayout, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology,
+    BlendFactor, BlendOp, ColorComponentFlags, CullModeFlags, DynamicState,
+    FrontFace, PolygonMode, PrimitiveTopology,
     SampleCountFlags,
 };
 use ash::{
     ext::debug_utils,
     vk::{
         ClearValue, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorSetLayout, DescriptorType,
+        CommandBufferUsageFlags, DebugUtilsMessengerEXT, DescriptorType,
         Extent2D, Fence, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags,
         PresentInfoKHR, Queue, Rect2D, RenderPassBeginInfo, Semaphore, ShaderStageFlags,
         SubmitInfo, SubpassContents, Viewport,
@@ -195,7 +195,7 @@ impl Renderer {
                     .open(&mut true)
                     .vscroll(true)
                     .resizable(true)
-                    .show(&ctx, |ui| {
+                    .show(ctx, |ui| {
                         ui.label("Hello world!");
                         if ui.button("Click me").clicked() {
                             debug!("CLICKED");
@@ -211,7 +211,7 @@ impl Renderer {
             window,
         ) {
             let textures_delta_set = full_output.textures_delta.set;
-            if textures_delta_set.len() == 0 {
+            if textures_delta_set.is_empty() {
                 break;
             }
 
@@ -227,7 +227,7 @@ impl Renderer {
                                     .create_texture_image(
                                         &[graphics_queue.clone()],
                                         &command_pool,
-                                        &image_data,
+                                        image_data,
                                     )
                                     .unwrap()
                             },
@@ -304,7 +304,7 @@ impl Renderer {
 
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
-            .extent(extent.clone());
+            .extent(extent);
         let viewports = vec![Viewport::default()
             .x(0.0)
             .y(0.0)
@@ -351,7 +351,7 @@ impl Renderer {
     pub fn display(&mut self, window: &Window) {
         let frame_data = self.frame_data[self.frame_idx].clone();
         self.draw(&frame_data, window);
-        self.frame_idx = self.frame_idx.add(1 as usize) % MAX_FRAMES;
+        self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
     }
 
     fn draw(&mut self, frame_data: &FrameData, window: &Window) {
@@ -383,7 +383,7 @@ impl Renderer {
                         .open(&mut true)
                         .vscroll(true)
                         .resizable(true)
-                        .show(&ctx, |ui| {
+                        .show(ctx, |ui| {
                             ui.label("Hello world!");
                             if ui.button("Click me").clicked() {
                                 debug!("CLICKED");
@@ -502,23 +502,21 @@ impl Renderer {
                     self.texture_informations.get(&mesh_buffer.mesh.texture_id);
                 if texture_information_data.iter().len() > 0 {
                     match texture_information_data.unwrap().texture_id {
-                        TextureId::Managed(id) => match id {
-                            _ => {
-                                self.device.cmd_bind_pipeline(
-                                    frame_data.command_buffer,
-                                    PipelineBindPoint::GRAPHICS,
-                                    *self.egui_pipelines[id as usize],
-                                );
+                        TextureId::Managed(id) => {
+                            self.device.cmd_bind_pipeline(
+                                frame_data.command_buffer,
+                                PipelineBindPoint::GRAPHICS,
+                                *self.egui_pipelines[id as usize],
+                            );
 
-                                self.device.cmd_bind_descriptor_sets(
-                                    frame_data.command_buffer,
-                                    PipelineBindPoint::GRAPHICS,
-                                    self.egui_pipelines[id as usize].pipeline_layout,
-                                    0,
-                                    &[*texture_information_data.unwrap().descriptor_set_details],
-                                    &[],
-                                );
-                            }
+                            self.device.cmd_bind_descriptor_sets(
+                                frame_data.command_buffer,
+                                PipelineBindPoint::GRAPHICS,
+                                self.egui_pipelines[id as usize].pipeline_layout,
+                                0,
+                                &[*texture_information_data.unwrap().descriptor_set_details],
+                                &[],
+                            );
                         },
                         TextureId::User(_) => todo!(),
                     }

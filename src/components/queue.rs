@@ -46,7 +46,7 @@ impl VkQueue {
         Ok(Self {
             queue,
             queue_family_index,
-            device: device.into(),
+            device,
             queue_type,
         })
     }

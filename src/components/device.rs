@@ -133,7 +133,7 @@ impl VkDevice {
                 devices
                     .into_iter()
                     .filter(|device| {
-                        Self::is_device_suitable(*device, &instance, surface.clone(), window)
+                        Self::is_device_suitable(*device, instance, surface.clone(), window)
                     })
                     .collect::<Vec<PhysicalDevice>>()
                     .first()
@@ -165,8 +165,8 @@ impl VkDevice {
         };
         let mut count = 0;
         for extension in &extensions {
-            if p_device_extensions.contains(&extension) {
-                count = count + 1;
+            if p_device_extensions.contains(extension) {
+                count += 1;
             }
         }
         extensions.len() == count

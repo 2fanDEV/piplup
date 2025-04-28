@@ -1,12 +1,9 @@
-use std::{env::Args, sync::Arc};
 
 use anyhow::Error;
-use ash::Device;
-use egui::{epaint::ImageDelta, FullOutput, ImageData, TextureId};
+use egui::{epaint::ImageDelta, ImageData, TextureId};
 
 use crate::components::{
     allocated_image::AllocatedImage, descriptors::DescriptorSetDetails,
-    memory_allocator::MemoryAllocator,
 };
 
 #[derive(Debug)]

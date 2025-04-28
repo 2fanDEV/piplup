@@ -5,6 +5,12 @@ pub struct DeletionQueue {
 }
 
 
+impl Default for DeletionQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeletionQueue {
     pub fn new() -> Self {
         Self {

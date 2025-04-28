@@ -1,4 +1,4 @@
-use std::{io::Error, mem::offset_of, ops::Deref, sync::Arc};
+use std::{io::Error, mem::offset_of, sync::Arc};
 
 use ash::vk::{BufferUsageFlags, Extent2D, Format, MemoryPropertyFlags, Offset2D, Rect2D, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate, Viewport};
 use egui::{

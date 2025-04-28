@@ -24,7 +24,7 @@ pub fn image_create_info<'a>(
         .array_layers(1)
         .samples(SampleCountFlags::TYPE_1)
         .tiling(ImageTiling::OPTIMAL)
-        .initial_layout(initial_layout.unwrap_or_else(|| ImageLayout::UNDEFINED))
+        .initial_layout(initial_layout.unwrap_or(ImageLayout::UNDEFINED))
 }
 
 pub fn image_view_create_info<'a>(

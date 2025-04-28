@@ -63,8 +63,7 @@ impl SwapchainSupportDetails {
                     && format.color_space.eq(&ColorSpaceKHR::SRGB_NONLINEAR)
             })
             .collect::<Vec<SurfaceFormatKHR>>()
-            .first()
-            .map(|format| *format)
+            .first().copied()
             .unwrap()
     }
 
@@ -74,15 +73,14 @@ impl SwapchainSupportDetails {
             .into_iter()
             .filter(|mode| mode.eq(&PresentModeKHR::FIFO))
             .collect::<Vec<PresentModeKHR>>()
-            .first()
-            .map(|mode| *mode)
+            .first().copied()
             .unwrap()
     }
 
     pub fn choose_swapchain_extent(self, window: &Window) -> Extent2D {
         let mut current_extent = self.capabilities.current_extent;
         if current_extent.width != u32::MAX {
-            return current_extent;
+            current_extent
         } else {
             let size = window.inner_size();
             current_extent = current_extent
@@ -94,7 +92,7 @@ impl SwapchainSupportDetails {
                     self.capabilities.min_image_extent.height,
                     self.capabilities.max_image_extent.height,
                 ));
-            return current_extent;
+            current_extent
         }
     }
 

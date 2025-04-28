@@ -135,14 +135,19 @@ impl DescriptorAllocator {
         unsafe {
             *device
                 .allocate_descriptor_sets(&allocate_info)
-                .unwrap()
-                .get(0)
+                .unwrap().first()
                 .unwrap()
         }
     }
 }
 
-impl<'a> DescriptorLayoutBuilder<'a> {
+impl Default for DescriptorLayoutBuilder<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DescriptorLayoutBuilder<'_> {
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
@@ -169,7 +174,7 @@ impl<'a> DescriptorLayoutBuilder<'a> {
         flags: DescriptorSetLayoutCreateFlags,
     ) -> DescriptorSetLayout {
         for binding in &mut self.bindings {
-            binding.stage_flags = binding.stage_flags | shader_stages
+            binding.stage_flags |= shader_stages
         }
 
         let descriptor_set_create_info = DescriptorSetLayoutCreateInfo::default()

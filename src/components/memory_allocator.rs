@@ -1,4 +1,4 @@
-use std::{any::Any, io::Error, ops::Deref, sync::Arc};
+use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
     BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags,
@@ -95,8 +95,8 @@ impl MemoryAllocator {
     ) -> Result<AllocatedImage, &str> {
         let pixels = match image_data {
             ImageData::Color(color_image) => {
-                let pixels = color_image.pixels.clone(); 
-                pixels
+                 
+                color_image.pixels.clone()
             }
             ImageData::Font(font_image) => font_image.srgba_pixels(None).collect::<Vec<Color32>>(),
         };
@@ -111,7 +111,7 @@ impl MemoryAllocator {
             .width(image_data.width() as u32)
             .depth(1);
         let image_info = image_create_info(
-            format.clone(),
+            format,
             ImageUsageFlags::TRANSFER_DST
                 | ImageUsageFlags::COLOR_ATTACHMENT
                 | ImageUsageFlags::SAMPLED,
@@ -217,7 +217,7 @@ impl MemoryAllocator {
     where
         T: Clone,
     {
-        let buffer_size = (buffer_elements.len() * size_of::<T>()) as u64;
+        let buffer_size = std::mem::size_of_val(buffer_elements) as u64;
         let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
         unsafe {

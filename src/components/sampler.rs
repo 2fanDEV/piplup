@@ -5,7 +5,7 @@ use ash::vk::{
     SamplerMipmapMode,
 };
 
-use super::{allocated_image, device::VkDevice};
+use super::device::VkDevice;
 
 #[derive(Clone)]
 pub struct VkSampler {

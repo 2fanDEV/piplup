@@ -1,4 +1,4 @@
-use core::fmt::{self, Debug};
+use core::fmt::{Debug};
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::ColorComponentFlags;
@@ -13,7 +13,6 @@ use ash::vk::{
     PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
-use cgmath::Matrix4;
 use egui::epaint::Vertex;
 use log::debug;
 
@@ -163,7 +162,7 @@ impl VkPipeline {
                 .create_pipeline_layout(&pipeline_layout_create_info, None)
                 .unwrap()
         };
-        let color_blending_state_info = create_color_blending_state(&color_blending_attachments);
+        let color_blending_state_info = create_color_blending_state(color_blending_attachments);
         let graphics_pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .stages(&pipeline_stage_create_info)
             .dynamic_state(&dynamic_states_create_info)
@@ -231,7 +230,7 @@ impl VkPipeline {
     }
 }
 
-pub fn dynamic_states<'a>(states: &'a [DynamicState]) -> PipelineDynamicStateCreateInfo<'a> {
+pub fn dynamic_states(states: &[DynamicState]) -> PipelineDynamicStateCreateInfo<'_> {
     PipelineDynamicStateCreateInfo::default().dynamic_states(states)
 }
 
