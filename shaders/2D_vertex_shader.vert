@@ -4,8 +4,8 @@ layout(location = 0) in vec2 a_inPos;
 layout(location = 1) in vec2 a_texCoords;
 layout(location = 2) in vec4 a_inColor;
 
-layout(location = 0) out vec2 v_texCoords;
-layout(location = 1) out vec4 v_outColor;
+layout(location = 0) out vec4 v_outColor;
+layout(location = 1) out vec2 v_texCoords;
 
 layout(push_constant) uniform PushConstant {
 	mat4 screenToClip;
