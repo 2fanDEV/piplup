@@ -1,3 +1,4 @@
+use core::fmt::{self, Debug};
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::ColorComponentFlags;
@@ -14,6 +15,7 @@ use ash::vk::{
 };
 use cgmath::Matrix4;
 use egui::epaint::Vertex;
+use log::debug;
 
 use crate::VertexAttributes;
 
@@ -69,17 +71,26 @@ impl ShaderInformation {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum PipelineType {
     GRAPHICS,
     COMPUTE,
 }
 
 #[allow(unused)]
+#[derive(Clone, Copy)]
 pub struct VkPipeline {
     pipeline: Pipeline,
     pub pipeline_layout: PipelineLayout,
-    device: Arc<VkDevice>,
     pub pipeline_type: PipelineType,
+}
+
+impl Debug for VkPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pipeline")
+            .field("Pipeline", &self.pipeline)
+            .finish()
+    }
 }
 
 impl Deref for VkPipeline {
@@ -106,7 +117,7 @@ impl VkPipeline {
         rasterizer_info: PipelineRasterizationStateCreateInfo,
         multisampling_info: PipelineMultisampleStateCreateInfo,
         render_pass: Arc<VkRenderPass>,
-    ) -> Result<Vec<VkPipeline>, Error> {
+    ) -> Result<VkPipeline, Error> {
         let dynamic_states_create_info = dynamic_states(dynamic_state_list);
         let mut pipeline_stage_create_info: Vec<PipelineShaderStageCreateInfo> = Vec::new();
         for information in shader_information {
@@ -132,13 +143,18 @@ impl VkPipeline {
         let color_blending_attachments = color_attachment;
 
         let mut pipeline_layout_create_info = PipelineLayoutCreateInfo::default();
-        let mut push_constant_range :Vec<PushConstantRange> = vec![];
+        let mut push_constant_range: Vec<PushConstantRange> = vec![];
         if push_constant_range_type.is_some() {
-        push_constant_range.push(PushConstantRange::default()
-                .stage_flags(shader_stage_flags)
-                .size(size_of::<T>() as u32));
-            pipeline_layout_create_info = pipeline_layout_create_info.push_constant_ranges(&push_constant_range);
+            push_constant_range.push(
+                PushConstantRange::default()
+                    .stage_flags(shader_stage_flags)
+                    .size(size_of::<T>() as u32),
+            );
+            pipeline_layout_create_info =
+                pipeline_layout_create_info.push_constant_ranges(&push_constant_range);
         }
+
+        debug!("AAAAA LAYOUTS {:?}", layouts);
         if layouts.is_some() {
             pipeline_layout_create_info = pipeline_layout_create_info.set_layouts(layouts.unwrap());
         }
@@ -163,8 +179,8 @@ impl VkPipeline {
             .base_pipeline_index(-1)
             .base_pipeline_handle(Pipeline::null());
         //        .depth_stencil_state(depth_stencil_state);
-        let pipelines = unsafe {
-            device
+        let pipeline = unsafe {
+            &device
                 .create_graphics_pipelines(
                     PipelineCache::default(),
                     &[graphics_pipeline_create_info],
@@ -175,20 +191,19 @@ impl VkPipeline {
                 .map(|pipeline| Self {
                     pipeline,
                     pipeline_layout,
-                    device: device.clone(),
                     pipeline_type: PipelineType::GRAPHICS,
                 })
-                .collect::<Vec<VkPipeline>>()
+                .collect::<Vec<VkPipeline>>()[0]
         };
 
-        Ok(pipelines)
+        Ok(*pipeline)
     }
 
     pub fn compute_pipelines(
         device: Arc<VkDevice>,
         layouts: &[DescriptorSetLayout],
         shader_file_path: &str,
-    ) -> Result<Vec<VkPipeline>, Error> {
+    ) -> Result<VkPipeline, Error> {
         let create_info = PipelineLayoutCreateInfo::default().set_layouts(layouts);
         let pipeline_layout = unsafe { device.create_pipeline_layout(&create_info, None).unwrap() };
         let shader_module = load_shader_module(shader_file_path, &device.device).unwrap();
@@ -208,10 +223,9 @@ impl VkPipeline {
         .map(|pipeline| VkPipeline {
             pipeline,
             pipeline_layout,
-            device: device.clone(),
             pipeline_type: PipelineType::COMPUTE,
         })
-        .collect::<Vec<VkPipeline>>();
+        .collect::<Vec<VkPipeline>>()[0];
 
         Ok(pipelines)
     }

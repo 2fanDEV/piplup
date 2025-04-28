@@ -2,8 +2,9 @@ use std::{collections::HashMap, ops::Add, sync::Arc};
 
 use anyhow::{anyhow, Error};
 use ash::vk::{
-    BlendFactor, BlendOp, ColorComponentFlags, CullModeFlags, DynamicState, FrontFace, ImageLayout,
-    PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, SampleCountFlags,
+    BlendFactor, BlendOp, ColorComponentFlags, CullModeFlags, DescriptorSet, DynamicState,
+    FrontFace, ImageLayout, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology,
+    SampleCountFlags,
 };
 use ash::{
     ext::debug_utils,
@@ -61,7 +62,7 @@ pub struct Renderer {
     swapchain: Arc<KHRSwapchain>,
     render_pass: Arc<VkRenderPass>,
     memory_allocator: Arc<MemoryAllocator>,
-    graphics_pipeline: Vec<VkPipeline>,
+    egui_pipelines: Vec<VkPipeline>,
     egui_font_sampler: VkSampler,
     egui_texture_sampler: VkSampler,
     egui_descriptor_allocator: DescriptorAllocator,
@@ -216,79 +217,68 @@ impl Renderer {
 
             for delta in textures_delta_set {
                 debug!("DELTA: {:?}", delta.0);
-                texture_informations.insert(
-                    delta.0,
-                    TextureInformationData::new(
-                        delta.clone(),
-                        |image_data| {
-                            memory_allocator
-                                .create_texture_image(
-                                    &[graphics_queue.clone()],
-                                    &command_pool,
-                                    &image_data,
-                                )
-                                .unwrap()
-                        },
-                        |allocated_image| {
-                            let mut binding;
-                            let mut dst_binding: u32;
-let sampler =  match delta.0 {
-                                        TextureId::Managed(id) => match id {
-                                            0 => {
-                                                binding = 0;
-                                                dst_binding=0;
-                                                Some(egui_font_sampler.clone())
-                                            },
-                                            _ => {
-                                                binding = 0; 
-                                                dst_binding = 1;
-                                                Some(egui_texture_sampler.clone())
-                                            }
-                                        },
-                                        TextureId::User(_) => {
-                                           return Err(anyhow!(RendererError::NotManaged(String::from(
-                                                "User handled texture data",
-                                            ))));
-                                        }
-                            }               ;
-                            Ok(egui_descriptor_allocator
-                                .get_descriptors(
-                                    &allocated_image.image_view,
-                                    ShaderStageFlags::FRAGMENT,
-                                    DescriptorType::COMBINED_IMAGE_SAMPLER,
-                                    sampler,
-                                    binding,
-                                    dst_binding
-                                ).unwrap())
-                        },
-                    ),
-                );
+                texture_informations
+                    .insert(
+                        delta.0,
+                        TextureInformationData::new(
+                            delta.clone(),
+                            |image_data| {
+                                memory_allocator
+                                    .create_texture_image(
+                                        &[graphics_queue.clone()],
+                                        &command_pool,
+                                        &image_data,
+                                    )
+                                    .unwrap()
+                            },
+                            |allocated_image| {
+                                let sampler = match delta.0 {
+                                    TextureId::Managed(id) => match id {
+                                        0 => Some(egui_font_sampler.clone()),
+                                        _ => Some(egui_texture_sampler.clone()),
+                                    },
+                                    TextureId::User(_) => {
+                                        return Err(anyhow!(RendererError::NotManaged(
+                                            String::from("User handled texture data",)
+                                        )));
+                                    }
+                                };
+                                Ok(egui_descriptor_allocator
+                                    .get_descriptors(
+                                        &allocated_image.image_view,
+                                        ShaderStageFlags::FRAGMENT,
+                                        DescriptorType::COMBINED_IMAGE_SAMPLER,
+                                        sampler,
+                                    )
+                                    .unwrap())
+                            },
+                        ),
+                    );
             }
         }
-
-        let graphics_pipeline = VkPipeline::create_new_pipeline(
+        let egui_fragment_shader = vec![
+            ShaderInformation::fragment_2d_information(
+                "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
+            ),
+            ShaderInformation::fragment_2d_information(
+                "/Users/zapzap/Projects/piplup/shaders/2D_texture_fragment_shader.spv".to_string(),
+            ),
+        ];
+        let mut egui_pipelines : Vec<VkPipeline> = vec![]; 
+        for shader in egui_fragment_shader {
+           egui_pipelines.push(VkPipeline::create_new_pipeline(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
             ShaderStageFlags::VERTEX,
-            &[
-                ShaderInformation::vertex_2d_information(
-                    "/Users/zapzap/Projects/piplup/shaders/2D_vertex_shader.spv".to_string(),
-                ),
-                ShaderInformation::fragment_2d_information(
-                    "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
-                ),
-                ShaderInformation::fragment_2d_information(
-                    "/Users/zapzap/Projects/piplup/shaders/2D_texture_fragment_shader.spv"
-                        .to_string(),
-                ),
-            ],
-            Some(
-                &texture_informations
-                    .iter()
-                    .map(|entry| entry.1.descriptor_set_details.layout)
-                    .collect::<Vec<DescriptorSetLayout>>(),
-            ),
+            &[ShaderInformation::vertex_2d_information(
+                "/Users/zapzap/Projects/piplup/shaders/2D_vertex_shader.spv".to_string(),
+            ), shader],
+            Some(&[texture_informations
+                .get(&TextureId::Managed(0))
+                .unwrap()
+                .descriptor_set_details
+                .layout]),
             &extent,
             Some(Matrix4::<f32>::identity()),
             Vertex::get_binding_description(),
@@ -309,7 +299,8 @@ let sampler =  match delta.0 {
             create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
             create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
-        )?;
+        )?);
+        }
 
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
@@ -336,7 +327,7 @@ let sampler =  match delta.0 {
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
             egui_descriptor_allocator,
-            graphics_pipeline,
+            egui_pipelines,
             render_pass,
             allocated_image,
             texture_informations,
@@ -463,11 +454,6 @@ let sampler =  match delta.0 {
                     float32: [0.0, 0.0, 1.0, 1.0],
                 },
             }];
-            self.device.cmd_bind_pipeline(
-                frame_data.command_buffer,
-                PipelineBindPoint::GRAPHICS,
-                *self.graphics_pipeline[0],
-            );
 
             let render_pass_begin_info = RenderPassBeginInfo::default()
                 .render_pass(**self.render_pass)
@@ -505,7 +491,7 @@ let sampler =  match delta.0 {
 
             self.device.cmd_push_constants(
                 frame_data.command_buffer,
-                self.graphics_pipeline[0].pipeline_layout,
+                self.egui_pipelines[0].pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
                 matrix_bytes,
@@ -514,15 +500,28 @@ let sampler =  match delta.0 {
             for mesh_buffer in mesh_buffers {
                 let texture_information_data =
                     self.texture_informations.get(&mesh_buffer.mesh.texture_id);
-                if texture_information_data.is_some() {
-                    self.device.cmd_bind_descriptor_sets(
-                        frame_data.command_buffer,
-                        PipelineBindPoint::GRAPHICS,
-                        self.graphics_pipeline[0].pipeline_layout,
-                        0,
-                        &[*texture_information_data.unwrap().descriptor_set_details],
-                        &[],
-                    );
+                if texture_information_data.iter().len() > 0 {
+                    match texture_information_data.unwrap().texture_id {
+                        TextureId::Managed(id) => match id {
+                            _ => {
+                                self.device.cmd_bind_pipeline(
+                                    frame_data.command_buffer,
+                                    PipelineBindPoint::GRAPHICS,
+                                    *self.egui_pipelines[id as usize],
+                                );
+
+                                self.device.cmd_bind_descriptor_sets(
+                                    frame_data.command_buffer,
+                                    PipelineBindPoint::GRAPHICS,
+                                    self.egui_pipelines[id as usize].pipeline_layout,
+                                    0,
+                                    &[*texture_information_data.unwrap().descriptor_set_details],
+                                    &[],
+                                );
+                            }
+                        },
+                        TextureId::User(_) => todo!(),
+                    }
                 }
                 self.device.cmd_set_scissor(
                     frame_data.command_buffer,

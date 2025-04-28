@@ -77,11 +77,9 @@ impl DescriptorAllocator {
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
         sampler: Option<VkSampler>,
-        binding: u32,
-        dst_binding: u32
     ) -> Result<DescriptorSetDetails, Error> {
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
-        descriptor_layout_builder.add_binding(binding, descriptor_type);
+        descriptor_layout_builder.add_binding(0, descriptor_type);
         let layout = descriptor_layout_builder.build(
             self.device.clone(),
             shader_stage,
@@ -99,7 +97,7 @@ impl DescriptorAllocator {
         descriptor_image_infos.push(descriptor_info);
 
         let write_descriptor_set = WriteDescriptorSet::default()
-            .dst_binding(dst_binding)
+            .dst_binding(0)
             .descriptor_count(1)
             .dst_set(descriptor_set)
             .descriptor_type(descriptor_type)
