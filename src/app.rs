@@ -26,7 +26,7 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        self.renderer.as_mut().unwrap().integration.input(self.window.as_mut().unwrap(), &event);
+        self.renderer.as_mut().unwrap().egui_renderer.integration.input(self.window.as_mut().unwrap(), &event);
         self.renderer
             .as_mut()
             .unwrap()

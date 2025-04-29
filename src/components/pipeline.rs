@@ -28,8 +28,6 @@ pub struct ShaderInformation {
     shader_file_path: String,
     stages: ShaderStageFlags,
     entry_point: String,
-    vertex_binding_description: Vec<VertexInputBindingDescription>,
-    vertex_attribute_description: Vec<VertexInputAttributeDescription>,
 }
 
 impl ShaderInformation {
@@ -37,15 +35,11 @@ impl ShaderInformation {
         shader_file_path: String,
         stages: ShaderStageFlags,
         entry_point: String,
-        vertex_binding_description: Vec<VertexInputBindingDescription>,
-        vertex_attribute_description: Vec<VertexInputAttributeDescription>,
     ) -> Self {
         Self {
             shader_file_path,
             stages,
             entry_point,
-            vertex_binding_description,
-            vertex_attribute_description,
         }
     }
 
@@ -54,8 +48,6 @@ impl ShaderInformation {
             shader_file_path,
             stages: ShaderStageFlags::VERTEX,
             entry_point: String::from("main"),
-            vertex_binding_description: Vertex::get_binding_description(),
-            vertex_attribute_description: Vertex::get_attribute_description(),
         }
     }
 
@@ -64,8 +56,6 @@ impl ShaderInformation {
             shader_file_path,
             stages: ShaderStageFlags::FRAGMENT,
             entry_point: String::from("main"),
-            vertex_binding_description: Vertex2D::get_binding_description(),
-            vertex_attribute_description: Vertex2D::get_attribute_description(),
         }
     }
 }
@@ -294,23 +284,29 @@ pub fn create_multisampling_state<'a>(
 pub fn create_color_blending_attachment_state(
     color_write_mask: ColorComponentFlags,
     blend_enable: bool,
-    src_color_blend_factor: BlendFactor,
-    dst_color_blend_factor: BlendFactor,
-    color_blend_op: BlendOp,
-    src_alpha_blend_factor: BlendFactor,
-    dst_alpha_blend_factor: BlendFactor,
-    alpha_blend_op: BlendOp,
+    src_color_blend_factor: Option<BlendFactor>,
+    dst_color_blend_factor: Option<BlendFactor>,
+    color_blend_op: Option<BlendOp>,
+    src_alpha_blend_factor: Option<BlendFactor>,
+    dst_alpha_blend_factor: Option<BlendFactor>,
+    alpha_blend_op: Option<BlendOp>,
 ) -> PipelineColorBlendAttachmentState {
+    if !blend_enable {
+        return PipelineColorBlendAttachmentState::default()
+            .blend_enable(false)
+            .color_write_mask(color_write_mask);
+    }
     PipelineColorBlendAttachmentState::default()
         .color_write_mask(color_write_mask)
         .blend_enable(blend_enable)
-        .src_color_blend_factor(src_color_blend_factor)
-        .dst_color_blend_factor(dst_color_blend_factor)
-        .color_blend_op(color_blend_op)
-        .src_alpha_blend_factor(src_alpha_blend_factor)
-        .dst_alpha_blend_factor(dst_alpha_blend_factor)
-        .alpha_blend_op(alpha_blend_op)
+        .src_color_blend_factor(src_color_blend_factor.unwrap())
+        .dst_color_blend_factor(dst_color_blend_factor.unwrap())
+        .color_blend_op(color_blend_op.unwrap())
+        .src_alpha_blend_factor(src_alpha_blend_factor.unwrap())
+        .dst_alpha_blend_factor(dst_alpha_blend_factor.unwrap())
+        .alpha_blend_op(alpha_blend_op.unwrap())
 }
+
 
 pub fn create_color_blending_state(
     attachments: &[PipelineColorBlendAttachmentState],
