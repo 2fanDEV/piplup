@@ -24,19 +24,23 @@ impl Deref for VkRenderPass {
 }
 
 impl VkRenderPass {
-    pub fn new(device: Arc<VkDevice>, format: Format) -> Result<VkRenderPass, Error> {
-        let color_attachment = create_attachment(format);
+    pub fn new(
+        device: Arc<VkDevice>,
+        format: Format,
+        attachment_load_op: AttachmentLoadOp,
+    ) -> Result<VkRenderPass, Error> {
+        let color_attachment = create_attachment(format, attachment_load_op);
         let color_attachment_ref = vec![create_attachment_ref()];
         let subpass_description = create_subpass_description(&color_attachment_ref);
         let subpass_dependency = create_subpass_dependency(
             DependencyFlags::BY_REGION,
             0,
             0,
-       PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
             PipelineStageFlags::FRAGMENT_SHADER,
             AccessFlags::COLOR_ATTACHMENT_READ,
-            AccessFlags::SHADER_READ
-            );
+            AccessFlags::SHADER_READ,
+        );
         Ok(unsafe {
             Self {
                 render_pass: device
@@ -86,11 +90,11 @@ fn create_subpass_dependency(
         .dst_stage_mask(dst_stage_mask)
 }
 
-fn create_attachment(image_format: Format) -> AttachmentDescription {
+fn create_attachment(image_format: Format, load_op: AttachmentLoadOp) -> AttachmentDescription {
     AttachmentDescription::default()
         .format(image_format)
         .samples(SampleCountFlags::TYPE_1)
-        .load_op(AttachmentLoadOp::CLEAR)
+        .load_op(load_op)
         .store_op(AttachmentStoreOp::STORE)
         .stencil_load_op(AttachmentLoadOp::DONT_CARE)
         .stencil_store_op(AttachmentStoreOp::DONT_CARE)

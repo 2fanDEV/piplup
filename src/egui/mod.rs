@@ -2,7 +2,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{
-    BlendFactor, BlendOp, ClearValue, ColorComponentFlags, CommandBufferBeginInfo, CommandBufferUsageFlags, CullModeFlags, DescriptorType, DynamicState, Extent2D, FrontFace, IndexType, PipelineBindPoint, PolygonMode, PrimitiveTopology, Rect2D, RenderPassBeginInfo, SampleCountFlags, ShaderStageFlags, SubpassContents, Viewport
+    AttachmentLoadOp, BlendFactor, BlendOp, ClearValue, ColorComponentFlags, CommandBuffer,
+    CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags,
+    DescriptorType, DynamicState, Extent2D, Format, FrontFace, IndexType, PipelineBindPoint,
+    PolygonMode, PrimitiveTopology, Rect2D, RenderPass, RenderPassBeginInfo, SampleCountFlags,
+    ShaderStageFlags, SubpassContents, Viewport,
 };
 use cgmath::{Matrix4, SquareMatrix};
 use egui::{epaint::Vertex, TextureId, WidgetText};
@@ -14,10 +18,18 @@ use winit::window::Window;
 
 use crate::{
     components::{
-        buffers::VkFrameBuffer, command_buffers::{self, VkCommandPool}, descriptors::{DescriptorAllocator, PoolSizeRatio}, device::VkDevice, frame_data::FrameData, memory_allocator::MemoryAllocator, pipeline::{
+        buffers::VkFrameBuffer,
+        command_buffers::{self, VkCommandPool},
+        descriptors::{DescriptorAllocator, PoolSizeRatio},
+        device::VkDevice,
+        memory_allocator::MemoryAllocator,
+        pipeline::{
             self, create_multisampling_state, create_rasterizer_state, ShaderInformation,
             VkPipeline,
-        }, queue::VkQueue, render_pass::VkRenderPass, sampler::VkSampler
+        },
+        queue::VkQueue,
+        render_pass::VkRenderPass,
+        sampler::VkSampler,
     },
     renderer::ImageIndex,
     VertexAttributes,
@@ -55,7 +67,7 @@ impl EguiRenderer {
         memory_allocator: Arc<MemoryAllocator>,
         graphics_queue: Arc<VkQueue>,
         extent: Extent2D,
-        render_pass: Arc<VkRenderPass>,
+        format: Format,
     ) -> Result<Self> {
         let egui_cmd_pool: VkCommandPool =
             command_buffers::VkCommandPool::new(graphics_queue.clone());
@@ -72,7 +84,11 @@ impl EguiRenderer {
 
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
-
+        let render_pass = Arc::new(VkRenderPass::new(
+            vk_device.clone(),
+            format,
+            AttachmentLoadOp::LOAD,
+        )?);
         #[allow(irrefutable_let_patterns)]
         while let full_output = integration.run(
             |ctx| {
@@ -104,10 +120,10 @@ impl EguiRenderer {
                 debug!("DELTA: {:?}", delta.0);
                 texture_informations.insert(
                     delta.0,
-                   TextureInformationData::new(
+                    TextureInformationData::new(
                         delta.clone(),
                         |image_data| {
-                           memory_allocator
+                            memory_allocator
                                 .create_texture_image(
                                     &[graphics_queue.clone()],
                                     &egui_cmd_pool,
@@ -211,13 +227,13 @@ impl EguiRenderer {
 
     pub fn draw(
         &mut self,
-        frame_data: &FrameData,
+        command_buffer: CommandBuffer,
         image_index: &ImageIndex,
         window: &Window,
         viewports: Vec<Viewport>,
         render_area: Rect2D,
         framebuffers: &[VkFrameBuffer],
-    ) {
+    ) -> Result<()> {
         let full_output = self.integration.run(
             |ctx| {
                 egui::Window::new(WidgetText::default().strong())
@@ -253,46 +269,53 @@ impl EguiRenderer {
                 .unwrap()
             })
             .collect();
-        self.record_command_buffer(frame_data, image_index, &self.mesh_buffers, framebuffers, render_area, viewports, window);
+        self.record_command_buffer(
+            command_buffer,
+            image_index,
+            &self.mesh_buffers,
+            framebuffers,
+            **self.render_pass,
+            render_area,
+            viewports,
+            window,
+        )?;
+
+        Ok(())
     }
 
     fn record_command_buffer(
         &self,
-        frame_data: &FrameData,
+        command_buffer: CommandBuffer,
         image_index: &ImageIndex,
         mesh_buffers: &[MeshBuffers],
         framebuffers: &[VkFrameBuffer],
+        render_pass: RenderPass,
         render_area: Rect2D,
         viewports: Vec<Viewport>,
         window: &Window,
-    ) {
+    ) -> Result<()> {
         unsafe {
-            let begin_info =
-                CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
             self.device
-                .begin_command_buffer(frame_data.egui_command_buffer, &begin_info)
-                .unwrap();
-
+                .reset_command_buffer(command_buffer, CommandBufferResetFlags::empty())?;
+            self.device.begin_command_buffer(
+                command_buffer,
+                &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )?;
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
-                    float32: [0.0, 0.0, 1.0, 1.0],
+                    float32: [0.0, 0.0, 0.0, 1.0],
                 },
             }];
-
-            let render_pass_begin_info = RenderPassBeginInfo::default()
-                .render_pass(**self.render_pass)
-                .framebuffer(*framebuffers[image_index.index as usize])
-                .clear_values(&clear_value)
-                .render_area(render_area);
-
             self.device.cmd_begin_render_pass(
-                frame_data.egui_command_buffer,
-                &render_pass_begin_info,
+                command_buffer,
+                &RenderPassBeginInfo::default()
+                    .clear_values(&clear_value)
+                    .render_area(render_area)
+                    .framebuffer(*framebuffers[image_index.index as usize])
+                    .render_pass(render_pass),
                 SubpassContents::INLINE,
             );
-
-            self.device
-                .cmd_set_viewport(frame_data.egui_command_buffer, 0, &viewports);
+            self.device.cmd_set_viewport(command_buffer, 0, &viewports);
             let scale_factor = window.scale_factor();
             let logical_size = window.inner_size().to_logical::<f32>(scale_factor);
 
@@ -314,7 +337,7 @@ impl EguiRenderer {
                 std::slice::from_raw_parts(matrix_ptr as *const u8, size_of::<Matrix4<f32>>());
 
             self.device.cmd_push_constants(
-                frame_data.egui_command_buffer,
+                command_buffer,
                 self.pipelines[0].pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
@@ -328,13 +351,13 @@ impl EguiRenderer {
                     match texture_information_data.unwrap().texture_id {
                         TextureId::Managed(id) => {
                             self.device.cmd_bind_pipeline(
-                                frame_data.egui_command_buffer,
+                                command_buffer,
                                 PipelineBindPoint::GRAPHICS,
                                 *self.pipelines[id as usize],
                             );
 
                             self.device.cmd_bind_descriptor_sets(
-                                frame_data.egui_command_buffer,
+                                command_buffer,
                                 PipelineBindPoint::GRAPHICS,
                                 self.pipelines[id as usize].pipeline_layout,
                                 0,
@@ -345,26 +368,19 @@ impl EguiRenderer {
                         TextureId::User(_) => todo!(),
                     }
                 }
-                self.device.cmd_set_scissor(
-                    frame_data.egui_command_buffer,
-                    0,
-                    &[mesh_buffer.mesh.scissors],
-                );
+                self.device
+                    .cmd_set_scissor(command_buffer, 0, &[mesh_buffer.mesh.scissors]);
                 let vertex_buffer = vec![mesh_buffer.vertex_buffer.buffer];
-                self.device.cmd_bind_vertex_buffers(
-                    frame_data.egui_command_buffer,
-                    0,
-                    &vertex_buffer,
-                    &[0],
-                );
+                self.device
+                    .cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffer, &[0]);
                 self.device.cmd_bind_index_buffer(
-                    frame_data.egui_command_buffer,
+                    command_buffer,
                     mesh_buffer.indices_buffer.buffer,
                     0,
                     IndexType::UINT32,
                 );
                 self.device.cmd_draw_indexed(
-                    frame_data.egui_command_buffer,
+                    command_buffer,
                     mesh_buffer.mesh.indices.len() as u32,
                     1,
                     0,
@@ -372,11 +388,9 @@ impl EguiRenderer {
                     0,
                 );
             }
-
-            self.device.cmd_end_render_pass(frame_data.egui_command_buffer);
-            self.device
-                .end_command_buffer(frame_data.egui_command_buffer)
-                .unwrap();
+            self.device.cmd_end_render_pass(command_buffer);
+            self.device.end_command_buffer(command_buffer)?;
         }
+        Ok(())
     }
 }

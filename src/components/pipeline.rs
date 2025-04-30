@@ -13,13 +13,11 @@ use ash::vk::{
     PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
-use egui::epaint::Vertex;
 use log::debug;
 
-use crate::VertexAttributes;
 
 use super::{
-    device::VkDevice, geom::vertex::Vertex2D, render_pass::VkRenderPass, util::load_shader_module,
+    device::VkDevice, render_pass::VkRenderPass, util::load_shader_module,
 };
 
 #[derive(Debug, Clone)]

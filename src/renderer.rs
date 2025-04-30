@@ -1,13 +1,10 @@
 use std::{ops::Add, sync::Arc};
 
-use anyhow::Error;
+use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        ColorComponentFlags, CommandBuffer, CommandBufferResetFlags, CullModeFlags,
-        DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, FrontFace, Offset2D,
-        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
-        SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, Viewport,
+        AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, FrontFace, ImageLayout, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
     },
 };
 use vk_mem::AllocatorCreateInfo;
@@ -21,7 +18,8 @@ use crate::{
         buffers::VkFrameBuffer,
         command_buffers::VkCommandPool,
         device::{self, VkDevice},
-        frame_data::FrameData,
+        frame_data::{self, FrameData},
+        image_util::image_transition,
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
         pipeline::{
@@ -31,7 +29,7 @@ use crate::{
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
         surface,
-        swapchain::{ImageDetails, KHRSwapchain},
+        swapchain::{ImageDetails, KHRSwapchain}, swapchain_support_details,
     },
     egui::{integration::MeshBuffers, EguiRenderer},
 };
@@ -133,6 +131,7 @@ impl Renderer {
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
+            AttachmentLoadOp::CLEAR
         )?);
         let framebuffers = VkFrameBuffer::create_framebuffers(
             vk_device.clone(),
@@ -206,7 +205,7 @@ impl Renderer {
             memory_allocator.clone(),
             graphics_queue.clone(),
             extent,
-            render_pass.clone(),
+            swapchain.details.clone().choose_swapchain_format().format
         )?;
         Ok(Self {
             instance: vk_instance,
@@ -242,7 +241,7 @@ impl Renderer {
         self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
     }
 
-    fn draw(&mut self, frame_data: &FrameData, window: &Window) {
+    fn draw(&mut self, frame_data: &FrameData, window: &Window) -> Result<()> {
         unsafe {
             self.device
                 .wait_for_fences(&frame_data.render_fence, true, u64::MAX)
@@ -269,19 +268,20 @@ impl Renderer {
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
             ];
-
+            
+            self.record_command_buffer(frame_data, &image_index, window).unwrap();
             self.egui_renderer.draw(
-                frame_data,
+                frame_data.egui_command_buffer,
                 &image_index,
                 window,
                 self.viewports.clone(),
                 self.render_area,
                 &self.framebuffers,
-            );
+            )?;
             self.submit_queue(
                 **self.graphics_queue,
                 frame_data,
-                &[frame_data.egui_command_buffer],
+                &[frame_data.command_buffer, frame_data.egui_command_buffer],
                 &stage_masks,
             );
             let image_indices = vec![image_index.index];
@@ -291,6 +291,67 @@ impl Renderer {
                 &image_indices,
             );
         }
+        Ok(())
+    }
+
+    fn record_command_buffer(
+        &mut self,
+        frame_data: &FrameData,
+        image_index: &ImageIndex,
+        window: &Window,
+    ) -> Result<()> {
+        unsafe {
+            self.device.begin_command_buffer(
+                frame_data.command_buffer,
+                &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )?;
+            image_transition(
+                self.device.clone(),
+                frame_data.command_buffer,
+                self.graphics_queue.queue_family_index,
+                self.allocated_image.image,
+                ImageLayout::UNDEFINED,
+                ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            );
+
+            let clear_value = vec![ClearValue {
+                color: ash::vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            }];
+            self.device.cmd_begin_render_pass(
+                frame_data.command_buffer,
+                &RenderPassBeginInfo::default()
+                    .render_pass(**self.render_pass)
+                    .framebuffer(*self.framebuffers[image_index.index as usize])
+                    .render_area(self.render_area)
+                    .clear_values(&clear_value),
+                SubpassContents::INLINE,
+            );
+
+
+            self.draw_geom(frame_data.command_buffer);
+
+            self.device.cmd_end_render_pass(frame_data.command_buffer);
+            self.device.end_command_buffer(frame_data.command_buffer)?;
+        }
+
+
+        Ok(())
+    }
+
+    fn draw_geom(&self, cmd: CommandBuffer) {
+        unsafe {
+            self.device.cmd_bind_pipeline(
+                cmd,
+                PipelineBindPoint::GRAPHICS,
+                *self.graphics_pipeline,
+            );
+
+            self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
+            self.device.cmd_set_viewport(cmd, 0, &self.viewports);
+            self.device.cmd_draw(cmd, 3, 1, 0, 0);
+        };
     }
 
     #[allow(dead_code)]
@@ -299,15 +360,6 @@ impl Renderer {
         function(self, command);
         self.command_pool
             .end_single_time_command(self.graphics_queue.clone(), command);
-    }
-
-    fn record_command_buffer(
-        &self,
-        frame_data: &FrameData,
-        image_index: &ImageIndex,
-        mesh_buffers: &[MeshBuffers],
-        window: &Window,
-    ) {
     }
 
     fn submit_queue(

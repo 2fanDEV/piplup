@@ -1,13 +1,12 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags,
-    ImageLayout, ImageUsageFlags, MemoryPropertyFlags, SharingMode,
+    BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageLayout,
+    ImageUsageFlags, MemoryPropertyFlags, SharingMode,
 };
 use egui::{Color32, ImageData};
 use vk_mem::{
-    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
-    MemoryUsage,
+    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage,
 };
 
 use super::{
@@ -94,10 +93,7 @@ impl MemoryAllocator {
         image_data: &ImageData,
     ) -> Result<AllocatedImage, &str> {
         let pixels = match image_data {
-            ImageData::Color(color_image) => {
-                 
-                color_image.pixels.clone()
-            }
+            ImageData::Color(color_image) => color_image.pixels.clone(),
             ImageData::Font(font_image) => font_image.srgba_pixels(None).collect::<Vec<Color32>>(),
         };
 
