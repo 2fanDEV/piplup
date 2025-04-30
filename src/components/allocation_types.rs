@@ -1,7 +1,7 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, MemoryPropertyFlags, Offset3D
+    BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Format, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageView, MemoryPropertyFlags, Offset3D
 };
 use ash::vk::Buffer;
 use vk_mem::Allocation;
@@ -9,6 +9,34 @@ use vk_mem::Allocation;
 use super::{
     command_buffers::VkCommandPool, device::VkDevice, image_util::image_subresource_layers, queue::VkQueue, render_pass::VkRenderPass, swapchain::ImageDetails
 };
+
+
+#[derive(Debug)]
+pub struct AllocatedImage {
+    pub image: Image,
+    pub image_view: ImageView,
+    pub allocation: vk_mem::Allocation,
+    pub extent: Extent3D,
+    pub image_format: Format,
+}
+
+impl AllocatedImage {
+    pub fn new(
+        image: Image,
+        image_view: ImageView,
+        allocation: Allocation,
+        extent: Extent3D,
+        image_format: Format,
+    ) -> Self {
+        Self {
+            image,
+            image_view,
+            extent,
+            allocation,
+            image_format,
+        }
+    }
+}
 
 #[allow(dead_code)]
 pub struct VkFrameBuffer {
@@ -25,7 +53,7 @@ impl Deref for VkFrameBuffer {
 }
 
 impl VkFrameBuffer {
-    pub fn new(
+    fn new(
         device: Arc<VkDevice>,
         render_pass: Arc<VkRenderPass>,
         extent: Extent2D,

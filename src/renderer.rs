@@ -4,7 +4,12 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, FrontFace, ImageLayout, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
+        AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo,
+        CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
+        DynamicState, Extent2D, Fence, FrontFace, ImageLayout, Offset2D, PipelineBindPoint,
+        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
+        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, Viewport,
     },
 };
 use vk_mem::AllocatorCreateInfo;
@@ -14,11 +19,10 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocated_image::AllocatedImage,
-        buffers::VkFrameBuffer,
+        allocation_types::{AllocatedImage, VkFrameBuffer},
         command_buffers::VkCommandPool,
         device::{self, VkDevice},
-        frame_data::{self, FrameData},
+        frame_data::FrameData,
         image_util::image_transition,
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
@@ -29,9 +33,9 @@ use crate::{
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
         surface,
-        swapchain::{ImageDetails, KHRSwapchain}, swapchain_support_details,
+        swapchain::{ImageDetails, KHRSwapchain},
     },
-    egui::{integration::MeshBuffers, EguiRenderer},
+    egui::EguiRenderer,
 };
 
 #[allow(unused)]
@@ -131,7 +135,7 @@ impl Renderer {
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
-            AttachmentLoadOp::CLEAR
+            AttachmentLoadOp::CLEAR,
         )?);
         let framebuffers = VkFrameBuffer::create_framebuffers(
             vk_device.clone(),
@@ -205,7 +209,7 @@ impl Renderer {
             memory_allocator.clone(),
             graphics_queue.clone(),
             extent,
-            swapchain.details.clone().choose_swapchain_format().format
+            swapchain.details.clone().choose_swapchain_format().format,
         )?;
         Ok(Self {
             instance: vk_instance,
@@ -235,18 +239,18 @@ impl Renderer {
         })
     }
 
-    pub fn display(&mut self, window: &Window) {
+    pub fn display(&mut self, window: &Window) -> Result<()> {
         let frame_data = self.frame_data[self.frame_idx].clone();
-        self.draw(&frame_data, window);
+        self.draw(&frame_data, window)?;
         self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
+        Ok(())
     }
 
     fn draw(&mut self, frame_data: &FrameData, window: &Window) -> Result<()> {
         unsafe {
             self.device
-                .wait_for_fences(&frame_data.render_fence, true, u64::MAX)
-                .unwrap();
-            self.device.reset_fences(&frame_data.render_fence).unwrap();
+                .wait_for_fences(&frame_data.render_fence, true, u64::MAX)?;
+            self.device.reset_fences(&frame_data.render_fence)?;
 
             let image_index = ImageIndex::new(
                 self.swapchain
@@ -260,16 +264,18 @@ impl Renderer {
                     .unwrap(),
             );
 
-            self.device
-                .reset_command_buffer(frame_data.command_buffer, CommandBufferResetFlags::empty())
-                .unwrap();
+            self.device.reset_command_buffer(
+                frame_data.command_buffer,
+                CommandBufferResetFlags::empty(),
+            )?;
 
             let stage_masks = vec![
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
             ];
-            
-            self.record_command_buffer(frame_data, &image_index, window).unwrap();
+
+            self.record_command_buffer(frame_data, &image_index, window)
+                .unwrap();
             self.egui_renderer.draw(
                 frame_data.egui_command_buffer,
                 &image_index,
@@ -329,13 +335,11 @@ impl Renderer {
                 SubpassContents::INLINE,
             );
 
-
             self.draw_geom(frame_data.command_buffer);
 
             self.device.cmd_end_render_pass(frame_data.command_buffer);
             self.device.end_command_buffer(frame_data.command_buffer)?;
         }
-
 
         Ok(())
     }

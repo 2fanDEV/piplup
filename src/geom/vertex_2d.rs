@@ -5,7 +5,8 @@ use ash::vk::{
 };
 use cgmath::{Vector2, Vector4};
 
-use crate::VertexAttributes;
+use super::VertexAttributes;
+
 
 #[derive(Debug, Clone)]
 pub struct Vertex2D {

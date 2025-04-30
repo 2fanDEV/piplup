@@ -18,21 +18,11 @@ use winit::window::Window;
 
 use crate::{
     components::{
-        buffers::VkFrameBuffer,
-        command_buffers::{self, VkCommandPool},
-        descriptors::{DescriptorAllocator, PoolSizeRatio},
-        device::VkDevice,
-        memory_allocator::MemoryAllocator,
-        pipeline::{
+        allocation_types::VkFrameBuffer, command_buffers::{self, VkCommandPool}, descriptors::{DescriptorAllocator, PoolSizeRatio}, device::VkDevice, memory_allocator::MemoryAllocator, pipeline::{
             self, create_multisampling_state, create_rasterizer_state, ShaderInformation,
             VkPipeline,
-        },
-        queue::VkQueue,
-        render_pass::VkRenderPass,
-        sampler::VkSampler,
-    },
-    renderer::ImageIndex,
-    VertexAttributes,
+        }, queue::VkQueue, render_pass::VkRenderPass, sampler::VkSampler
+    }, geom::VertexAttributes, renderer::ImageIndex
 };
 
 pub mod image_information_data;

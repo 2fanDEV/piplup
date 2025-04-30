@@ -10,13 +10,7 @@ use vk_mem::{
 };
 
 use super::{
-    allocated_image::AllocatedImage,
-    buffers::VkBuffer,
-    command_buffers::VkCommandPool,
-    device::VkDevice,
-    image_util::{image_create_info, image_transition, image_view_create_info},
-    queue::VkQueue,
-    swapchain::KHRSwapchain,
+    allocation_types::{AllocatedImage, VkBuffer}, command_buffers::VkCommandPool, device::VkDevice, image_util::{image_create_info, image_transition, image_view_create_info}, queue::VkQueue, swapchain::KHRSwapchain
 };
 
 pub struct MemoryAllocator {

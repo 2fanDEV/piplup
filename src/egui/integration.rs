@@ -11,8 +11,8 @@ use winit::{
 };
 
 use crate::{components::{
-    buffers::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue,
-}, VertexAttributes};
+    allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue
+}, geom::VertexAttributes};
 
 #[derive(Debug)]
 pub struct Mesh {

@@ -3,7 +3,7 @@ use anyhow::Error;
 use egui::{epaint::ImageDelta, ImageData, TextureId};
 
 use crate::components::{
-    allocated_image::AllocatedImage, descriptors::DescriptorSetDetails,
+  allocation_types::AllocatedImage, descriptors::DescriptorSetDetails
 };
 
 #[derive(Debug)]
