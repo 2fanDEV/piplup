@@ -8,7 +8,7 @@ use ash::vk::{
 use egui::{
     epaint::{Primitive, Vertex},
     text::Fonts,
-    ClippedPrimitive, Context, FullOutput, TextureId, ViewportId,
+    ClippedPrimitive, Context, FullOutput, ViewportId,
 };
 use egui_winit::{EventResponse, State};
 use winit::{
@@ -16,13 +16,9 @@ use winit::{
     window::{Theme, Window},
 };
 
-use crate::{
-    components::{
-        allocation_types::VkBuffer, command_buffers::VkCommandPool,
-        memory_allocator::MemoryAllocator, queue::VkQueue,
-    },
-    geom::{mesh::{Mesh, MeshBuffers}, VertexAttributes},
-};
+use crate::
+    geom::{mesh::Mesh, VertexAttributes}
+;
 
 impl VertexAttributes for Vertex {
     fn get_binding_description() -> Vec<VertexInputBindingDescription> {
@@ -102,13 +98,13 @@ impl EguiIntegration {
     }
 
     #[allow(unused)]
-    pub fn convert(&mut self, extent: Extent2D, output: &FullOutput) -> Vec<Mesh<Vertex>> {
+    pub fn convert(&mut self, extent: Extent2D, output: &FullOutput) -> Vec<Mesh<Vertex, u32>> {
         let clipped_primitives = self.state.egui_ctx().tessellate(
             output.shapes.clone(),
             self.state.egui_ctx().pixels_per_point(),
         );
 
-        let mut meshes: Vec<Mesh<Vertex>> = Vec::new();
+        let mut meshes: Vec<Mesh<Vertex, u32>> = Vec::new();
 
         for ClippedPrimitive {
             primitive,

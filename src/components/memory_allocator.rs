@@ -9,6 +9,7 @@ use vk_mem::{
     Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage,
 };
 
+
 use super::{
     allocation_types::{AllocatedImage, VkBuffer}, command_buffers::VkCommandPool, device::VkDevice, image_util::{image_create_info, image_transition, image_view_create_info}, queue::VkQueue, swapchain::KHRSwapchain
 };
@@ -205,8 +206,8 @@ impl MemoryAllocator {
         command_pool: &VkCommandPool,
     ) -> Result<VkBuffer, Error>
     where
-        T: Clone,
-    {
+        T:Clone,
+    {       
         let buffer_size = std::mem::size_of_val(buffer_elements) as u64;
         let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };

@@ -11,18 +11,28 @@ use ash::vk::{
 use cgmath::{Matrix4, SquareMatrix};
 use egui::{epaint::Vertex, TextureId, WidgetText};
 use image_information_data::TextureInformationData;
-use integration::{EguiIntegration};
+use integration::EguiIntegration;
 use log::debug;
 use thiserror::Error;
 use winit::window::Window;
 
 use crate::{
     components::{
-        allocation_types::VkFrameBuffer, command_buffers::{self, VkCommandPool}, descriptors::{DescriptorAllocator, PoolSizeRatio}, device::VkDevice, memory_allocator::MemoryAllocator, pipeline::{
+        allocation_types::VkFrameBuffer,
+        command_buffers::{self, VkCommandPool},
+        descriptors::{DescriptorAllocator, PoolSizeRatio},
+        device::VkDevice,
+        memory_allocator::MemoryAllocator,
+        pipeline::{
             self, create_multisampling_state, create_rasterizer_state, ShaderInformation,
             VkPipeline,
-        }, queue::VkQueue, render_pass::VkRenderPass, sampler::VkSampler
-    }, geom::{mesh::MeshBuffers, VertexAttributes}, renderer::ImageIndex
+        },
+        queue::VkQueue,
+        render_pass::VkRenderPass,
+        sampler::VkSampler,
+    },
+    geom::{mesh::MeshBuffers, VertexAttributes},
+    renderer::ImageIndex,
 };
 
 pub mod image_information_data;
@@ -41,7 +51,7 @@ pub struct EguiRenderer {
     descriptor_allocator: DescriptorAllocator,
     texture_informations: HashMap<TextureId, TextureInformationData>,
     pub integration: EguiIntegration,
-    mesh_buffers: Vec<MeshBuffers<Vertex>>,
+    mesh_buffers: Vec<MeshBuffers<Vertex, u32>>,
     memory_allocator: Arc<MemoryAllocator>,
     graphics_queue: Arc<VkQueue>,
     command_pool: VkCommandPool,
@@ -245,18 +255,35 @@ impl EguiRenderer {
             },
             window,
         );
+
         self.mesh_buffers = self
             .integration
             .convert(self.extent, &full_output)
             .into_iter()
             .map(|mesh| {
-                MeshBuffers::new(
+                MeshBuffers::<Vertex, u32>::new(
                     mesh,
-                    &self.memory_allocator,
-                    self.graphics_queue.clone(),
-                    &self.command_pool,
-                )
-                .unwrap()
+                    |elements, flags, usage, mem_flags| {
+                        self.memory_allocator.create_buffer(
+                            &elements,
+                            &[self.graphics_queue.clone()],
+                            flags,
+                            usage,
+                            mem_flags,
+                            &self.command_pool,
+                        ).unwrap()
+                    },
+                    |elements, flags, usage, mem_flags| {
+                        self.memory_allocator.create_buffer(
+                            &elements,
+                            &[self.graphics_queue.clone()],
+                            flags,
+                            usage,
+                            mem_flags,
+                            &self.command_pool,
+                        ).unwrap()
+                    },
+                ).unwrap()
             })
             .collect();
         self.record_command_buffer(
@@ -277,7 +304,7 @@ impl EguiRenderer {
         &self,
         command_buffer: CommandBuffer,
         image_index: &ImageIndex,
-        mesh_buffers: &[MeshBuffers<Vertex>],
+        mesh_buffers: &[MeshBuffers<Vertex, u32>],
         framebuffers: &[VkFrameBuffer],
         render_pass: RenderPass,
         render_area: Rect2D,
@@ -335,8 +362,9 @@ impl EguiRenderer {
             );
 
             for mesh_buffer in mesh_buffers {
-                let texture_information_data =
-                    self.texture_informations.get(&mesh_buffer.mesh.texture_id.unwrap());
+                let texture_information_data = self
+                    .texture_informations
+                    .get(&mesh_buffer.mesh.texture_id.unwrap());
                 if texture_information_data.iter().len() > 0 {
                     match texture_information_data.unwrap().texture_id {
                         TextureId::Managed(id) => {
@@ -365,7 +393,7 @@ impl EguiRenderer {
                     .cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffer, &[0]);
                 self.device.cmd_bind_index_buffer(
                     command_buffer,
-                    mesh_buffer.indices_buffer.buffer,
+                    mesh_buffer.index_buffer.buffer,
                     0,
                     IndexType::UINT32,
                 );
