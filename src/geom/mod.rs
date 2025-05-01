@@ -2,7 +2,7 @@ use ash::vk::{VertexInputAttributeDescription, VertexInputBindingDescription};
 
 pub mod vertex_2d;
 pub mod vertex_3d;
-
+pub mod mesh;
 pub trait VertexAttributes {
 
    fn get_binding_description() -> Vec<VertexInputBindingDescription>;

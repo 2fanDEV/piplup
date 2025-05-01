@@ -17,7 +17,7 @@ pub struct Vertex3D {
 impl VertexAttributes for Vertex3D {
     fn get_binding_description() -> Vec<ash::vk::VertexInputBindingDescription> {
         vec![VertexInputBindingDescription::default()
-            .binding(9)
+            .binding(0)
             .stride(size_of::<Vertex3D>() as u32)
             .input_rate(VertexInputRate::VERTEX)]
     }
@@ -37,12 +37,12 @@ impl VertexAttributes for Vertex3D {
             VertexInputAttributeDescription::default()
                 .binding(0)
                 .location(1)
-                .format(Format::R32G32B32A32_SFLOAT)
+                .format(Format::R32G32B32_SFLOAT)
                 .offset(offset_of!(Vertex3D, normal) as u32),
             VertexInputAttributeDescription::default()
                 .binding(0)
                 .location(1)
-                .format(Format::R32G32B32A32_SFLOAT)
+                .format(Format::R32G32_SFLOAT)
                 .offset(offset_of!(Vertex3D, uv) as u32),
         ]
     }

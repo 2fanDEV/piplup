@@ -1,8 +1,14 @@
-use std::{io::Error, mem::offset_of, sync::Arc};
 
-use ash::vk::{BufferUsageFlags, Extent2D, Format, MemoryPropertyFlags, Offset2D, Rect2D, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate, Viewport};
+use std::mem::offset_of;
+
+use ash::vk::{
+    Extent2D, Format, Offset2D, Rect2D,
+    VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate, Viewport,
+};
 use egui::{
-    epaint::{Primitive, Vertex}, text::Fonts, ClippedPrimitive, Context, FullOutput, TextureId, ViewportId
+    epaint::{Primitive, Vertex},
+    text::Fonts,
+    ClippedPrimitive, Context, FullOutput, TextureId, ViewportId,
 };
 use egui_winit::{EventResponse, State};
 use winit::{
@@ -10,58 +16,13 @@ use winit::{
     window::{Theme, Window},
 };
 
-use crate::{components::{
-    allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue
-}, geom::VertexAttributes};
-
-#[derive(Debug)]
-pub struct Mesh {
-    pub vertices: Vec<Vertex>,
-    pub indices: Vec<u32>,
-    pub texture_id: TextureId,
-    pub scissors: Rect2D,
-    pub viewport: Viewport,
-}
-
-#[derive(Debug)]
-pub struct MeshBuffers {
-    pub vertex_buffer: VkBuffer,
-    pub indices_buffer: VkBuffer,
-    pub mesh: Mesh
-}
-
-impl MeshBuffers {
-    #[allow(deprecated)]
-    pub fn new(
-        mesh: Mesh,
-        allocator: &MemoryAllocator,
-        queue: Arc<VkQueue>,
-        command_pool: &VkCommandPool,
-    ) -> Result<MeshBuffers, Error> {
-        let queue = vec![queue];
-        let vertex_buffer = allocator.create_buffer(
-            &mesh.vertices,
-            &queue,
-            BufferUsageFlags::VERTEX_BUFFER,
-            vk_mem::MemoryUsage::GpuOnly,
-            MemoryPropertyFlags::DEVICE_LOCAL,
-            command_pool,
-        )?;
-        let indices_buffer = allocator.create_buffer(
-            &mesh.indices,
-            &queue,
-            BufferUsageFlags::INDEX_BUFFER,
-            vk_mem::MemoryUsage::GpuOnly,
-            MemoryPropertyFlags::DEVICE_LOCAL,
-            command_pool,
-        )?;
-        Ok(Self {
-            vertex_buffer,
-            indices_buffer,
-            mesh
-        })
-    }
-}
+use crate::{
+    components::{
+        allocation_types::VkBuffer, command_buffers::VkCommandPool,
+        memory_allocator::MemoryAllocator, queue::VkQueue,
+    },
+    geom::{mesh::{Mesh, MeshBuffers}, VertexAttributes},
+};
 
 impl VertexAttributes for Vertex {
     fn get_binding_description() -> Vec<VertexInputBindingDescription> {
@@ -113,7 +74,6 @@ impl EguiIntegration {
             Some(1024 * 4),
         );
 
-
         Self {
             state,
             has_run: false,
@@ -141,15 +101,14 @@ impl EguiIntegration {
         }
     }
 
-
     #[allow(unused)]
-    pub fn convert(&mut self, extent: Extent2D, output: &FullOutput) -> Vec<Mesh> {
-        let clipped_primitives = self
-            .state
-            .egui_ctx()
-            .tessellate(output.shapes.clone(), self.state.egui_ctx().pixels_per_point());
+    pub fn convert(&mut self, extent: Extent2D, output: &FullOutput) -> Vec<Mesh<Vertex>> {
+        let clipped_primitives = self.state.egui_ctx().tessellate(
+            output.shapes.clone(),
+            self.state.egui_ctx().pixels_per_point(),
+        );
 
-        let mut meshes: Vec<Mesh> = Vec::new();
+        let mut meshes: Vec<Mesh<Vertex>> = Vec::new();
 
         for ClippedPrimitive {
             primitive,
@@ -158,7 +117,6 @@ impl EguiIntegration {
         {
             match primitive {
                 Primitive::Mesh(mesh) => {
-
                     let vertices = mesh.vertices;
                     let indices = mesh.indices;
                     let scale_factor = self.state.egui_ctx().pixels_per_point(); // egui provides scale factor
@@ -187,7 +145,7 @@ impl EguiIntegration {
                     meshes.push(Mesh {
                         vertices,
                         indices,
-                        texture_id: mesh.texture_id,
+                        texture_id: Some(mesh.texture_id),
                         scissors: scissor_rect,
                         viewport,
                     });

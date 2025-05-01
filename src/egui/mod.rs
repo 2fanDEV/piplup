@@ -11,7 +11,7 @@ use ash::vk::{
 use cgmath::{Matrix4, SquareMatrix};
 use egui::{epaint::Vertex, TextureId, WidgetText};
 use image_information_data::TextureInformationData;
-use integration::{EguiIntegration, MeshBuffers};
+use integration::{EguiIntegration};
 use log::debug;
 use thiserror::Error;
 use winit::window::Window;
@@ -22,7 +22,7 @@ use crate::{
             self, create_multisampling_state, create_rasterizer_state, ShaderInformation,
             VkPipeline,
         }, queue::VkQueue, render_pass::VkRenderPass, sampler::VkSampler
-    }, geom::VertexAttributes, renderer::ImageIndex
+    }, geom::{mesh::MeshBuffers, VertexAttributes}, renderer::ImageIndex
 };
 
 pub mod image_information_data;
@@ -41,7 +41,7 @@ pub struct EguiRenderer {
     descriptor_allocator: DescriptorAllocator,
     texture_informations: HashMap<TextureId, TextureInformationData>,
     pub integration: EguiIntegration,
-    mesh_buffers: Vec<MeshBuffers>,
+    mesh_buffers: Vec<MeshBuffers<Vertex>>,
     memory_allocator: Arc<MemoryAllocator>,
     graphics_queue: Arc<VkQueue>,
     command_pool: VkCommandPool,
@@ -277,7 +277,7 @@ impl EguiRenderer {
         &self,
         command_buffer: CommandBuffer,
         image_index: &ImageIndex,
-        mesh_buffers: &[MeshBuffers],
+        mesh_buffers: &[MeshBuffers<Vertex>],
         framebuffers: &[VkFrameBuffer],
         render_pass: RenderPass,
         render_area: Rect2D,
@@ -336,7 +336,7 @@ impl EguiRenderer {
 
             for mesh_buffer in mesh_buffers {
                 let texture_information_data =
-                    self.texture_informations.get(&mesh_buffer.mesh.texture_id);
+                    self.texture_informations.get(&mesh_buffer.mesh.texture_id.unwrap());
                 if texture_information_data.iter().len() > 0 {
                     match texture_information_data.unwrap().texture_id {
                         TextureId::Managed(id) => {
