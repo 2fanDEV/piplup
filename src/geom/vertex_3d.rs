@@ -3,15 +3,16 @@ use std::mem::offset_of;
 use ash::vk::{
     Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
-use cgmath::{Vector2, Vector3, Vector4};
+use nalgebra::{Vector2, Vector3, Vector4};
 
 use super::VertexAttributes;
 
+#[derive(Default, Clone)]
 pub struct Vertex3D {
-    pos: Vector3<f32>,
-    color: Vector4<f32>,
-    normal: Vector3<f32>,
-    uv: Vector2<f32>,
+    pub pos: Vector3<f32>,
+    pub color: Vector4<f32>,
+    pub normal: Vector3<f32>,
+    pub uv: Vector2<f32>,
 }
 
 impl VertexAttributes for Vertex3D {

@@ -8,11 +8,11 @@ use ash::vk::{
     PolygonMode, PrimitiveTopology, Rect2D, RenderPass, RenderPassBeginInfo, SampleCountFlags,
     ShaderStageFlags, SubpassContents, Viewport,
 };
-use cgmath::{Matrix4, SquareMatrix};
 use egui::{epaint::Vertex, TextureId, WidgetText};
 use image_information_data::TextureInformationData;
 use integration::EguiIntegration;
 use log::debug;
+use nalgebra::Matrix4;
 use thiserror::Error;
 use winit::window::Window;
 
@@ -31,7 +31,7 @@ use crate::{
         render_pass::VkRenderPass,
         sampler::VkSampler,
     },
-    geom::{mesh::MeshBuffers, VertexAttributes},
+    geom::{egui_push_constant, mesh::MeshBuffers, VertexAttributes},
     renderer::ImageIndex,
 };
 
@@ -179,7 +179,7 @@ impl EguiRenderer {
                 ],
                 Some(&[texture_informations
                     .get(&TextureId::Managed(0))
-                    .unwrap()
+                   .unwrap()
                     .descriptor_set_details
                     .layout]),
                 &extent,
@@ -264,26 +264,31 @@ impl EguiRenderer {
                 MeshBuffers::<Vertex, u32>::new(
                     mesh,
                     |elements, flags, usage, mem_flags| {
-                        self.memory_allocator.create_buffer(
-                            &elements,
-                            &[self.graphics_queue.clone()],
-                            flags,
-                            usage,
-                            mem_flags,
-                            &self.command_pool,
-                        ).unwrap()
+                        self.memory_allocator
+                            .create_buffer(
+                                &elements,
+                                &[self.graphics_queue.clone()],
+                                flags,
+                                usage,
+                                mem_flags,
+                                &self.command_pool,
+                            )
+                            .unwrap()
                     },
                     |elements, flags, usage, mem_flags| {
-                        self.memory_allocator.create_buffer(
-                            &elements,
-                            &[self.graphics_queue.clone()],
-                            flags,
-                            usage,
-                            mem_flags,
-                            &self.command_pool,
-                        ).unwrap()
+                        self.memory_allocator
+                            .create_buffer(
+                                &elements,
+                                &[self.graphics_queue.clone()],
+                                flags,
+                                usage,
+                                mem_flags,
+                                &self.command_pool,
+                            )
+                            .unwrap()
                     },
-                ).unwrap()
+                )
+                .unwrap()
             })
             .collect();
         self.record_command_buffer(
@@ -333,32 +338,12 @@ impl EguiRenderer {
                 SubpassContents::INLINE,
             );
             self.device.cmd_set_viewport(command_buffer, 0, &viewports);
-            let scale_factor = window.scale_factor();
-            let logical_size = window.inner_size().to_logical::<f32>(scale_factor);
-
-            let sx = 2.0 / logical_size.width;
-            let sy = 2.0 / logical_size.height;
-            let tx = -1.0;
-            let ty = -1.0;
-
-            let clip_matrix = Matrix4::new(
-                sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, 0.0, 1.0,
-            );
-            let matrix_array: &[[f32; 4]; 4] = clip_matrix.as_ref();
-
-            // Get a pointer to the first element of the array
-            let matrix_ptr: *const f32 = matrix_array.as_ptr() as *const f32;
-
-            // Convert the pointer to a byte slice
-            let matrix_bytes: &[u8] =
-                std::slice::from_raw_parts(matrix_ptr as *const u8, size_of::<Matrix4<f32>>());
-
             self.device.cmd_push_constants(
                 command_buffer,
                 self.pipelines[0].pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
-                matrix_bytes,
+                &egui_push_constant(window),
             );
 
             for mesh_buffer in mesh_buffers {

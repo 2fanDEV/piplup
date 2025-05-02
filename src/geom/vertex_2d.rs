@@ -3,20 +3,18 @@ use std::mem::offset_of;
 use ash::vk::{
     Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
-use cgmath::{Vector2, Vector4};
+use nalgebra::{Vector2, Vector4};
 
 use super::VertexAttributes;
-
 
 #[derive(Debug, Clone)]
 pub struct Vertex2D {
     pub pos: Vector2<f32>,
-    pub  texture_coords: Vector2<f32>,
+    pub texture_coords: Vector2<f32>,
     pub color: Vector4<u8>,
 }
 
 impl VertexAttributes for Vertex2D {
-
     fn get_binding_description() -> Vec<VertexInputBindingDescription> {
         vec![VertexInputBindingDescription::default()
             .binding(0)

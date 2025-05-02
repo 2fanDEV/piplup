@@ -12,6 +12,7 @@ use ash::{
         SubpassContents, Viewport,
     },
 };
+use nalgebra::{Vector2, Vector3, Vector4};
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
 
@@ -36,6 +37,10 @@ use crate::{
         swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::EguiRenderer,
+    geom::{
+        mesh::{Mesh, MeshBuffers},
+        vertex_3d::Vertex3D,
+    },
 };
 
 #[allow(unused)]
@@ -51,7 +56,8 @@ pub struct Renderer {
     memory_allocator: Arc<MemoryAllocator>,
     allocated_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
-    graphics_pipeline: VkPipeline,
+    triangle_pipeline: VkPipeline,
+    mesh_pipeline: VkPipeline,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
     framebuffers: Vec<VkFrameBuffer>,
@@ -163,7 +169,7 @@ impl Renderer {
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
 
-        let graphics_pipeline = VkPipeline::create_new_pipeline::<_>(
+        let triangle_pipeline = VkPipeline::create_new_pipeline::<_>(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
@@ -203,6 +209,95 @@ impl Renderer {
             render_pass.clone(),
         )?;
 
+        let mesh_pipeline = VkPipeline::create_new_pipeline::<_>(
+            vk_device.clone(),
+            &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
+            PrimitiveTopology::TRIANGLE_LIST,
+            ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+            &[
+                ShaderInformation::new(
+                    "/Users/zapzap/Projects/piplup/shaders/triangle_vert.spv".to_owned(),
+                    ShaderStageFlags::VERTEX,
+                    "main".to_string(),
+                ),
+                ShaderInformation::new(
+                    "/Users/zapzap/Projects/piplup/shaders/triangle_fragment.spv".to_string(),
+                    ShaderStageFlags::FRAGMENT,
+                    "main".to_string(),
+                ),
+            ],
+            None,
+            &extent,
+            None::<String>,
+            vec![],
+            vec![],
+            &[create_color_blending_attachment_state(
+                ColorComponentFlags::R
+                    | ColorComponentFlags::G
+                    | ColorComponentFlags::B
+                    | ColorComponentFlags::A,
+                false,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )],
+            create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
+            create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
+            render_pass.clone(),
+        )?;
+
+        let mesh = Mesh::<Vertex3D, u32> {
+            vertices: vec![
+                Vertex3D {
+                    pos: Vector3::new(0.5, -0.5, 0.0),
+                    color: Vector4::new(0.0, 0.0, 0.0, 1.0),
+                    ..Default::default()
+                },
+                Vertex3D {
+                    pos: Vector3::new(0.5, 0.5, 0.0),
+                    color: Vector4::new(0.5, 0.5, 0.5, 1.0),
+                    ..Default::default()
+                },
+                Vertex3D {
+                    pos: Vector3::new(-0.5, 0.5, 0.0),
+                    color: Vector4::new(1.0, 0.0, 0.0, 1.0),
+                    ..Default::default()
+                },
+                Vertex3D {
+                    pos: Vector3::new(0.5, 0.5, 0.0),
+                    color: Vector4::new(0.0, 1.0, 1.0, 0.5),
+                    ..Default::default()
+                },
+            ],
+            indices: vec![0, 1, 2, 2, 1, 3],
+            texture_id: None,
+            scissors: render_area,
+            viewport: viewports[0],
+        };
+
+        let mesh_triangle_buffers = MeshBuffers::new(mesh, |elements, usage, mem_usage, mem_flags| {
+            memory_allocator.create_buffer(
+                &elements,
+                &[graphics_queue.clone()],
+                usage,
+                mem_usage,
+                mem_flags,
+                &command_pool,
+            ).unwrap()},
+ |elements, usage, mem_usage, mem_flags| {
+            memory_allocator.create_buffer(
+                &elements,
+                &[graphics_queue.clone()],
+                usage,
+                mem_usage,
+                mem_flags,
+                &command_pool,
+            ).unwrap()
+        })?;
+
         let egui_renderer = EguiRenderer::new(
             vk_device.clone(),
             window,
@@ -222,7 +317,8 @@ impl Renderer {
             //    compute_pipelines,
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
-            graphics_pipeline,
+            triangle_pipeline,
+            mesh_pipeline,
             render_pass,
             allocated_image,
             framebuffers,
@@ -349,7 +445,7 @@ impl Renderer {
             self.device.cmd_bind_pipeline(
                 cmd,
                 PipelineBindPoint::GRAPHICS,
-                *self.graphics_pipeline,
+                *self.triangle_pipeline,
             );
 
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
