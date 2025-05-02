@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 ash = "0.38.0"
 ash-window = "0.13.0"
-cgmath = "0.18.0"
 egui = "0.31.1"
 egui-winit = "0.31.1"
 egui_extras = { version = "0.31.1", features = ["all_loaders"]}
