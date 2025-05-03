@@ -84,8 +84,7 @@ impl EguiRenderer {
 
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
-        let render_pass = Arc::new(VkRenderPass::new(
-            vk_device.clone(),
+        let render_pass = Arc::new(VkRenderPass::new( vk_device.clone(),
             format,
             AttachmentLoadOp::LOAD,
         )?);
@@ -179,7 +178,7 @@ impl EguiRenderer {
                 ],
                 Some(&[texture_informations
                     .get(&TextureId::Managed(0))
-                   .unwrap()
+                    .unwrap()
                     .descriptor_set_details
                     .layout]),
                 &extent,

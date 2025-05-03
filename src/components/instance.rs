@@ -9,7 +9,7 @@ use std::{
 use ash::{
     ext::debug_utils,
     vk::{
-        ApplicationInfo, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCallbackDataEXT, DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT, InstanceCreateFlags, InstanceCreateInfo, API_VERSION_1_3, EXT_DEBUG_UTILS_NAME
+        ApplicationInfo, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCallbackDataEXT, DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT, InstanceCreateFlags, InstanceCreateInfo, API_VERSION_1_3, EXT_BUFFER_DEVICE_ADDRESS_NAME, EXT_DEBUG_UTILS_NAME
     },
     Entry, Instance, LoadingError,
 };

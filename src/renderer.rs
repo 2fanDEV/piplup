@@ -1,4 +1,4 @@
-use std::{ops::Add, sync::Arc};
+use std::{iter::Sum, ops::Add, sync::Arc};
 
 use anyhow::{Error, Result};
 use ash::{
@@ -6,13 +6,14 @@ use ash::{
     vk::{
         AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo,
         CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
-        DynamicState, Extent2D, Fence, FrontFace, ImageLayout, Offset2D, PipelineBindPoint,
-        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
-        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, Viewport,
+        DynamicState, Extent2D, Fence, FrontFace, ImageLayout, IndexType, Offset2D,
+        PipelineBindPoint, PipelineLayout, PipelineStageFlags, PolygonMode, PresentInfoKHR,
+        PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore,
+        ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
     },
 };
-use nalgebra::{Vector2, Vector3, Vector4};
+use log::debug;
+use nalgebra::{Matrix4, Vector3, Vector4};
 use vk_mem::AllocatorCreateInfo;
 use winit::window::Window;
 
@@ -38,8 +39,7 @@ use crate::{
     },
     egui::EguiRenderer,
     geom::{
-        mesh::{Mesh, MeshBuffers},
-        vertex_3d::Vertex3D,
+        mesh::{Mesh, MeshBuffers}, push_constants::PushConstant, triangle_push_constant, vertex_3d::Vertex3D, VertexAttributes
     },
 };
 
@@ -56,8 +56,8 @@ pub struct Renderer {
     memory_allocator: Arc<MemoryAllocator>,
     allocated_image: AllocatedImage,
     image_details: Vec<ImageDetails>,
-    triangle_pipeline: VkPipeline,
     mesh_pipeline: VkPipeline,
+    mesh_triangle_buffers: Vec<MeshBuffers<Vertex3D, u32>>,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
     framebuffers: Vec<VkFrameBuffer>,
@@ -169,66 +169,26 @@ impl Renderer {
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
 
-        let triangle_pipeline = VkPipeline::create_new_pipeline::<_>(
-            vk_device.clone(),
-            &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
-            PrimitiveTopology::TRIANGLE_LIST,
-            ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
-            &[
-                ShaderInformation::new(
-                    "/Users/zapzap/Projects/piplup/shaders/triangle_vert.spv".to_owned(),
-                    ShaderStageFlags::VERTEX,
-                    "main".to_string(),
-                ),
-                ShaderInformation::new(
-                    "/Users/zapzap/Projects/piplup/shaders/triangle_fragment.spv".to_string(),
-                    ShaderStageFlags::FRAGMENT,
-                    "main".to_string(),
-                ),
-            ],
-            None,
-            &extent,
-            None::<String>,
-            vec![],
-            vec![],
-            &[create_color_blending_attachment_state(
-                ColorComponentFlags::R
-                    | ColorComponentFlags::G
-                    | ColorComponentFlags::B
-                    | ColorComponentFlags::A,
-                false,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )],
-            create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
-            create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
-            render_pass.clone(),
-        )?;
-
         let mesh_pipeline = VkPipeline::create_new_pipeline::<_>(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
-            ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+            ShaderStageFlags::VERTEX,
             &[
                 ShaderInformation::new(
-                    "/Users/zapzap/Projects/piplup/shaders/triangle_vert.spv".to_owned(),
+                    "/Users/zapzap/Projects/piplup/shaders/3_pos_vertex.spv".to_owned(),
                     ShaderStageFlags::VERTEX,
                     "main".to_string(),
                 ),
                 ShaderInformation::new(
-                    "/Users/zapzap/Projects/piplup/shaders/triangle_fragment.spv".to_string(),
+                    "/Users/zapzap/Projects/piplup/shaders/triangle_fragment.spv".to_owned(),
                     ShaderStageFlags::FRAGMENT,
                     "main".to_string(),
                 ),
             ],
             None,
             &extent,
-            None::<String>,
+            Some(PushConstant::<Matrix4::<f32>>::default()),
             vec![],
             vec![],
             &[create_color_blending_attachment_state(
@@ -244,7 +204,11 @@ impl Renderer {
                 None,
                 None,
             )],
-            create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
+            create_rasterizer_state(
+                PolygonMode::FILL,
+                CullModeFlags::NONE,
+                FrontFace::CLOCKWISE,
+            ),
             create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
         )?;
@@ -262,13 +226,13 @@ impl Renderer {
                     ..Default::default()
                 },
                 Vertex3D {
-                    pos: Vector3::new(-0.5, 0.5, 0.0),
+                    pos: Vector3::new(-0.5, -0.5, 0.0),
                     color: Vector4::new(1.0, 0.0, 0.0, 1.0),
                     ..Default::default()
                 },
                 Vertex3D {
-                    pos: Vector3::new(0.5, 0.5, 0.0),
-                    color: Vector4::new(0.0, 1.0, 1.0, 0.5),
+                    pos: Vector3::new(-0.5, 0.5, 0.0),
+                    color: Vector4::new(0.0, 1.0, 1.0, 0.0),
                     ..Default::default()
                 },
             ],
@@ -278,25 +242,33 @@ impl Renderer {
             viewport: viewports[0],
         };
 
-        let mesh_triangle_buffers = MeshBuffers::new(mesh, |elements, usage, mem_usage, mem_flags| {
-            memory_allocator.create_buffer(
-                &elements,
-                &[graphics_queue.clone()],
-                usage,
-                mem_usage,
-                mem_flags,
-                &command_pool,
-            ).unwrap()},
- |elements, usage, mem_usage, mem_flags| {
-            memory_allocator.create_buffer(
-                &elements,
-                &[graphics_queue.clone()],
-                usage,
-                mem_usage,
-                mem_flags,
-                &command_pool,
-            ).unwrap()
-        })?;
+        let mesh_triangle_buffers = vec![MeshBuffers::new(
+            mesh,
+            |elements, usage, mem_usage, mem_flags| {
+                memory_allocator
+                    .create_buffer(
+                        &elements,
+                        &[graphics_queue.clone()],
+                        usage,
+                        mem_usage,
+                        mem_flags,
+                        &command_pool,
+                    )
+                    .unwrap()
+            },
+            |elements, usage, mem_usage, mem_flags| {
+                memory_allocator
+                    .create_buffer(
+                        &elements,
+                        &[graphics_queue.clone()],
+                        usage,
+                        mem_usage,
+                        mem_flags,
+                        &command_pool,
+                    )
+                    .unwrap()
+            },
+        )?];
 
         let egui_renderer = EguiRenderer::new(
             vk_device.clone(),
@@ -317,13 +289,13 @@ impl Renderer {
             //    compute_pipelines,
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
-            triangle_pipeline,
             mesh_pipeline,
             render_pass,
             allocated_image,
             framebuffers,
             image_details,
             memory_allocator,
+            mesh_triangle_buffers,
             frame_data,
             frame_idx: 0,
             render_area,
@@ -407,13 +379,14 @@ impl Renderer {
                 frame_data.command_buffer,
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
+
             image_transition(
                 self.device.clone(),
                 frame_data.command_buffer,
                 self.graphics_queue.queue_family_index,
                 self.allocated_image.image,
                 ImageLayout::UNDEFINED,
-                ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                ImageLayout::GENERAL,
             );
 
             let clear_value = vec![ClearValue {
@@ -430,8 +403,9 @@ impl Renderer {
                     .clear_values(&clear_value),
                 SubpassContents::INLINE,
             );
-
-            self.draw_geom(frame_data.command_buffer);
+            for buffers in self.mesh_triangle_buffers.iter() {
+                self.draw_geom(frame_data.command_buffer, buffers, window);
+            }
 
             self.device.cmd_end_render_pass(frame_data.command_buffer);
             self.device.end_command_buffer(frame_data.command_buffer)?;
@@ -440,17 +414,32 @@ impl Renderer {
         Ok(())
     }
 
-    fn draw_geom(&self, cmd: CommandBuffer) {
+    fn draw_geom<T: VertexAttributes, U: Sum>(
+        &self,
+        cmd: CommandBuffer,
+        buffer: &MeshBuffers<T, U>,
+        window: &Window,
+    ) {
         unsafe {
-            self.device.cmd_bind_pipeline(
-                cmd,
-                PipelineBindPoint::GRAPHICS,
-                *self.triangle_pipeline,
-            );
+            self.device
+                .cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, *self.mesh_pipeline);
 
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
             self.device.cmd_set_viewport(cmd, 0, &self.viewports);
-            self.device.cmd_draw(cmd, 3, 1, 0, 0);
+            self.device
+                .cmd_bind_vertex_buffers(cmd, 0, &[*buffer.vertex_buffer], &[0]);
+            self.device.cmd_push_constants(
+                cmd,
+                self.mesh_pipeline.pipeline_layout,
+                ShaderStageFlags::VERTEX,
+                0,
+                &triangle_push_constant(),
+            );
+            self.device
+                .cmd_bind_index_buffer(cmd, *buffer.index_buffer, 0, IndexType::UINT32);
+            self.device
+                .cmd_draw_indexed(cmd, buffer.mesh.indices.len() as u32, 1, 0, 0, 0);
+            //           self.device.cmd_draw(cmd, 3, 1, 0, 0);
         };
     }
 

@@ -1,11 +1,11 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::{
-    vk::{DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, QueueFlags, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME},
+    vk::{DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceVulkan12Features, QueueFlags, EXT_BUFFER_DEVICE_ADDRESS_NAME, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME},
     Device, Instance,
 };
 use log::error;
-use winit::window::Window;
+use winit::window::{self, Window};
 
 use super::{instance::VkInstance, surface::KHRSurface, swapchain_support_details::SwapchainSupportDetails};
 
@@ -104,6 +104,7 @@ impl VkDevice {
                     KHR_PORTABILITY_SUBSET_NAME.as_ptr(),
                 ];
 
+                let mut extra_features = PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
                 let device_queue_create_infos = vec![DeviceQueueCreateInfo::default()
                     .queue_family_index(indices.graphics_q_idx.unwrap())
                     .queue_priorities(&[1.0])];
@@ -111,7 +112,8 @@ impl VkDevice {
                     .enabled_features(&features)
                     .queue_create_infos(&device_queue_create_infos)
                     .enabled_features(&features)
-                    .enabled_extension_names(&extensions);
+                    .enabled_extension_names(&extensions) 
+                    .push_next(&mut extra_features);
                 let device = unsafe {
                     instance
                         .create_device(physical_device, &device_create_infos, None)

@@ -1,19 +1,19 @@
-use std::marker::PhantomData;
+use ash::vk::DeviceAddress;
+use log::debug;
 
-use ash::vk::DeviceMemory;
-
-#[derive(Copy, Clone)]
-pub struct PushConstant<T: Sized> {
+#[derive(Default, Copy, Clone)]
+pub struct PushConstant<T: Sized + Default> {
     push_constant: T,
-    address: DeviceMemory,
+    device_address: DeviceAddress
 }
 
-impl<T: Sized> PushConstant<T> {
-    pub fn new(push_constant: T, address: DeviceMemory) -> Self {
-        Self {
-            push_constant,
-            address,
-        }
+impl<T: Sized> PushConstant<T>
+where
+    T: Sized + Default,
+{
+    pub fn new(push_constant: T) -> Self {
+        Self { push_constant,
+        device_address: DeviceAddress::default()}
     }
 
     pub fn size(&self) -> usize {
