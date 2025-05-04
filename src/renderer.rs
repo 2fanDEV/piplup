@@ -238,7 +238,7 @@ impl Renderer {
                     ..Default::default()
                 },
             ],
-            indices: vec![0, 1, 2, 3, 1, 3],
+            indices: vec![0, 1, 2, 2, 1, 3],
             texture_id: None,
             scissors: render_area,
             viewport: viewports[0],
