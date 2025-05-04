@@ -1,9 +1,11 @@
+use std::fmt::Display;
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
     BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Format, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageView, MemoryPropertyFlags, Offset3D
 };
 use ash::vk::Buffer;
+use log::debug;
 use vk_mem::Allocation;
 
 use super::{
@@ -91,6 +93,7 @@ impl VkFrameBuffer {
 pub struct VkBuffer {
     pub buffer: Buffer,
     pub allocation: Allocation,
+    pub address: u64
 }
 
 impl Deref for VkBuffer {

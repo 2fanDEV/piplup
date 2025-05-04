@@ -1,12 +1,13 @@
+use core::slice;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{
     AttachmentLoadOp, BlendFactor, BlendOp, ClearValue, ColorComponentFlags, CommandBuffer,
     CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags,
-    DescriptorType, DynamicState, Extent2D, Format, FrontFace, IndexType, PipelineBindPoint,
-    PolygonMode, PrimitiveTopology, Rect2D, RenderPass, RenderPassBeginInfo, SampleCountFlags,
-    ShaderStageFlags, SubpassContents, Viewport,
+    DescriptorType, DynamicState, Extent2D, Format, FrontFace, ImageLayout, IndexType,
+    PipelineBindPoint, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, RenderPassBeginInfo,
+    SampleCountFlags, ShaderStageFlags, SubpassContents, Viewport,
 };
 use egui::{epaint::Vertex, TextureId, WidgetText};
 use image_information_data::TextureInformationData;
@@ -22,6 +23,7 @@ use crate::{
         command_buffers::{self, VkCommandPool},
         descriptors::{DescriptorAllocator, PoolSizeRatio},
         device::VkDevice,
+        image_util::image_transition,
         memory_allocator::MemoryAllocator,
         pipeline::{
             self, create_multisampling_state, create_rasterizer_state, ShaderInformation,
@@ -84,8 +86,11 @@ impl EguiRenderer {
 
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
-        let render_pass = Arc::new(VkRenderPass::new( vk_device.clone(),
+        let render_pass = Arc::new(VkRenderPass::new(
+            vk_device.clone(),
             format,
+            ImageLayout::GENERAL,
+            ImageLayout::PRESENT_SRC_KHR,
             AttachmentLoadOp::LOAD,
         )?);
         #[allow(irrefutable_let_patterns)]
@@ -142,6 +147,7 @@ impl EguiRenderer {
                                     )));
                                 }
                             };
+
                             Ok(egui_descriptor_allocator
                                 .get_descriptors(
                                     &allocated_image.image_view,
@@ -155,6 +161,19 @@ impl EguiRenderer {
                 );
             }
         }
+
+        let cmd = egui_cmd_pool.single_time_command()?;
+        let _ = texture_informations.iter().map(|(_, tex_data)| {
+            image_transition(
+                egui_cmd_pool.device.clone(),
+                cmd,
+                0,
+                tex_data.allocated_image.image,
+                ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                ImageLayout::GENERAL,
+            );
+        });
+        egui_cmd_pool.end_single_time_command(graphics_queue.clone(), cmd);
         let egui_fragment_shader = vec![
             ShaderInformation::fragment_2d_information(
                 "/Users/zapzap/Projects/piplup/shaders/2D_fragment_shader.spv".to_string(),
@@ -322,11 +341,13 @@ impl EguiRenderer {
                 command_buffer,
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
+            
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
                     float32: [0.0, 0.0, 0.0, 1.0],
                 },
             }];
+
             self.device.cmd_begin_render_pass(
                 command_buffer,
                 &RenderPassBeginInfo::default()

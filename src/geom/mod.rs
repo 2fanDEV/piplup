@@ -1,4 +1,7 @@
-use ash::vk::{VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::{
+    ext::device_address_binding_report,
+    vk::{DeviceAddress, VertexInputAttributeDescription, VertexInputBindingDescription},
+};
 use log::debug;
 use nalgebra::Matrix4;
 use push_constants::PushConstant;
@@ -30,11 +33,12 @@ pub fn egui_push_constant(window: &Window) -> Vec<u8> {
             0.0, 0.0, 1.0, 0.0, // Column 3
             0.0, 0.0, 0.0, 1.0, // Column 4
         ),
+        u64::default(),
     );
-    push_constant.raw_data()
+    push_constant.raw_data_of_T()
 }
 
-pub fn triangle_push_constant() -> Vec<u8> {
-    let push_constant = PushConstant::new(Matrix4::<f32>::identity());
+pub fn triangle_push_constant(buffer_address: DeviceAddress, window: &Window) -> Vec<u8> {
+    let push_constant = PushConstant::new(Matrix4::<f32>::identity(), buffer_address);
     push_constant.raw_data()
 }

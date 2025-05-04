@@ -1,9 +1,10 @@
-use std::{iter::Sum, marker::PhantomData};
+use std::{fmt::Debug, iter::Sum, marker::PhantomData};
 
 use crate::components::allocation_types::VkBuffer;
 use anyhow::Error;
 use ash::vk::{BufferUsageFlags, MemoryPropertyFlags, Rect2D, Viewport};
 use egui::TextureId;
+use log::debug;
 use vk_mem::MemoryUsage;
 
 use super::VertexAttributes;
@@ -56,13 +57,13 @@ where
     ) -> Result<MeshBuffers<T, U>, Error> {
         let vertex_buffer = create_vertex_buffer(
             mesh.vertices.clone(),
-            BufferUsageFlags::VERTEX_BUFFER,
-            MemoryUsage::CpuOnly,
+             BufferUsageFlags::VERTEX_BUFFER | BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            MemoryUsage::GpuOnly,
             MemoryPropertyFlags::DEVICE_LOCAL,
         );
         let index_buffer = create_index_buffer(
             mesh.indices.clone(),
-            BufferUsageFlags::INDEX_BUFFER,
+            BufferUsageFlags::INDEX_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             MemoryUsage::GpuOnly,
             MemoryPropertyFlags::DEVICE_LOCAL,
         );

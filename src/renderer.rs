@@ -1,20 +1,21 @@
-use std::{iter::Sum, ops::Add, sync::Arc};
+use std::{fmt::Debug, iter::Sum, ops::Add, sync::Arc};
 
 use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo,
-        CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
-        DynamicState, Extent2D, Fence, FrontFace, ImageLayout, IndexType, Offset2D,
-        PipelineBindPoint, PipelineLayout, PipelineStageFlags, PolygonMode, PresentInfoKHR,
-        PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore,
-        ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
+        AttachmentLoadOp, BufferDeviceAddressCreateInfoEXT, BufferDeviceAddressInfo, ClearValue,
+        ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
+        CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D,
+        Fence, FrontFace, ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineLayout,
+        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
+        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, Viewport,
     },
 };
 use log::debug;
 use nalgebra::{Matrix4, Vector3, Vector4};
-use vk_mem::AllocatorCreateInfo;
+use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
@@ -25,7 +26,6 @@ use crate::{
         command_buffers::VkCommandPool,
         device::{self, VkDevice},
         frame_data::FrameData,
-        image_util::image_transition,
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
         pipeline::{
@@ -39,7 +39,11 @@ use crate::{
     },
     egui::EguiRenderer,
     geom::{
-        mesh::{Mesh, MeshBuffers}, push_constants::PushConstant, triangle_push_constant, vertex_3d::Vertex3D, VertexAttributes
+        mesh::{Mesh, MeshBuffers},
+        push_constants::PushConstant,
+        triangle_push_constant,
+        vertex_3d::Vertex3D,
+        VertexAttributes,
     },
 };
 
@@ -113,10 +117,10 @@ impl Renderer {
         )?);
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
-        let memory_allocator = Arc::new(MemoryAllocator::new(
-            vk_device.clone(),
-            AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device),
-        ));
+        let mut alloc_info =
+            AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device);
+        alloc_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
+        let memory_allocator = Arc::new(MemoryAllocator::new(vk_device.clone(), alloc_info));
         let image_details = swapchain.create_image_details()?;
         let allocated_image = memory_allocator.create_image(swapchain.clone())?;
         /*       let compute_descriptor_allocator = DescriptorAllocator::new(
@@ -141,6 +145,8 @@ impl Renderer {
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
+            ImageLayout::UNDEFINED,
+            ImageLayout::GENERAL,
             AttachmentLoadOp::CLEAR,
         )?);
         let framebuffers = VkFrameBuffer::create_framebuffers(
@@ -169,7 +175,7 @@ impl Renderer {
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
 
-        let mesh_pipeline = VkPipeline::create_new_pipeline::<_>(
+        let mesh_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
@@ -188,7 +194,7 @@ impl Renderer {
             ],
             None,
             &extent,
-            Some(PushConstant::<Matrix4::<f32>>::default()),
+            Some(PushConstant::<Matrix4<f32>>::default()),
             vec![],
             vec![],
             &[create_color_blending_attachment_state(
@@ -204,11 +210,7 @@ impl Renderer {
                 None,
                 None,
             )],
-            create_rasterizer_state(
-                PolygonMode::FILL,
-                CullModeFlags::NONE,
-                FrontFace::CLOCKWISE,
-            ),
+            create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
             create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
         )?;
@@ -236,7 +238,7 @@ impl Renderer {
                     ..Default::default()
                 },
             ],
-            indices: vec![0, 1, 2, 2, 1, 3],
+            indices: vec![0, 1, 2, 3, 1, 3],
             texture_id: None,
             scissors: render_area,
             viewport: viewports[0],
@@ -380,15 +382,6 @@ impl Renderer {
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
 
-            image_transition(
-                self.device.clone(),
-                frame_data.command_buffer,
-                self.graphics_queue.queue_family_index,
-                self.allocated_image.image,
-                ImageLayout::UNDEFINED,
-                ImageLayout::GENERAL,
-            );
-
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
                     float32: [0.0, 0.0, 0.0, 0.0],
@@ -406,7 +399,6 @@ impl Renderer {
             for buffers in self.mesh_triangle_buffers.iter() {
                 self.draw_geom(frame_data.command_buffer, buffers, window);
             }
-
             self.device.cmd_end_render_pass(frame_data.command_buffer);
             self.device.end_command_buffer(frame_data.command_buffer)?;
         }
@@ -414,7 +406,7 @@ impl Renderer {
         Ok(())
     }
 
-    fn draw_geom<T: VertexAttributes, U: Sum>(
+    fn draw_geom<T: VertexAttributes + Debug, U: Sum + Debug>(
         &self,
         cmd: CommandBuffer,
         buffer: &MeshBuffers<T, U>,
@@ -426,20 +418,27 @@ impl Renderer {
 
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
             self.device.cmd_set_viewport(cmd, 0, &self.viewports);
-            self.device
-                .cmd_bind_vertex_buffers(cmd, 0, &[*buffer.vertex_buffer], &[0]);
+
+            let push_constants_data = triangle_push_constant(buffer.vertex_buffer.address, window);
             self.device.cmd_push_constants(
                 cmd,
                 self.mesh_pipeline.pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
-                &triangle_push_constant(),
+                &push_constants_data,
             );
-            self.device
-                .cmd_bind_index_buffer(cmd, *buffer.index_buffer, 0, IndexType::UINT32);
+
+            /*   self.device
+            .cmd_bind_vertex_buffers(cmd, 0, &[buffer.vertex_buffer.buffer], &[0]); */
+            self.device.cmd_bind_index_buffer(
+                cmd,
+                buffer.index_buffer.buffer,
+                0,
+                IndexType::UINT32,
+            );
+
             self.device
                 .cmd_draw_indexed(cmd, buffer.mesh.indices.len() as u32, 1, 0, 0, 0);
-            //           self.device.cmd_draw(cmd, 3, 1, 0, 0);
         };
     }
 

@@ -1,5 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
+use anyhow::Error;
 use ash::vk::{
     CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel,
     CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Fence,
@@ -64,7 +65,7 @@ impl VkCommandPool {
         }
     }
 
-    pub fn single_time_command(&self) -> Result<CommandBuffer, ()> {
+    pub fn single_time_command(&self) -> Result<CommandBuffer, Error> {
         let command_buffer_allocate_info = CommandBufferAllocateInfo::default()
             .level(CommandBufferLevel::PRIMARY)
             .command_pool(self.command_pool)

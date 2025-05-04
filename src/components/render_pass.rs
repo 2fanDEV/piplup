@@ -27,9 +27,12 @@ impl VkRenderPass {
     pub fn new(
         device: Arc<VkDevice>,
         format: Format,
+        initial_layout: ImageLayout,
+        final_layout: ImageLayout,
         attachment_load_op: AttachmentLoadOp,
     ) -> Result<VkRenderPass, Error> {
-        let color_attachment = create_attachment(format, attachment_load_op);
+        let color_attachment =
+            create_attachment(format, initial_layout, final_layout, attachment_load_op);
         let color_attachment_ref = vec![create_attachment_ref()];
         let subpass_description = create_subpass_description(&color_attachment_ref);
         let subpass_dependency = create_subpass_dependency(
@@ -90,7 +93,12 @@ fn create_subpass_dependency(
         .dst_stage_mask(dst_stage_mask)
 }
 
-fn create_attachment(image_format: Format, load_op: AttachmentLoadOp) -> AttachmentDescription {
+fn create_attachment(
+    image_format: Format,
+    initial_layout: ImageLayout,
+    final_layout: ImageLayout,
+    load_op: AttachmentLoadOp,
+) -> AttachmentDescription {
     AttachmentDescription::default()
         .format(image_format)
         .samples(SampleCountFlags::TYPE_1)
@@ -98,8 +106,8 @@ fn create_attachment(image_format: Format, load_op: AttachmentLoadOp) -> Attachm
         .store_op(AttachmentStoreOp::STORE)
         .stencil_load_op(AttachmentLoadOp::DONT_CARE)
         .stencil_store_op(AttachmentStoreOp::DONT_CARE)
-        .initial_layout(ImageLayout::UNDEFINED)
-        .final_layout(ImageLayout::PRESENT_SRC_KHR)
+        .initial_layout(initial_layout)
+        .final_layout(final_layout)
 }
 
 fn create_attachment_ref() -> AttachmentReference {

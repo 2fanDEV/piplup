@@ -1,17 +1,26 @@
-use std::{io::Error, ops::Deref, sync::Arc};
+use std::{fmt::Debug, io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    BufferCreateInfo, BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageLayout,
-    ImageUsageFlags, MemoryPropertyFlags, SharingMode,
+    BufferCreateFlags, BufferCreateInfo, BufferDeviceAddressCreateInfoEXT, BufferDeviceAddressInfo,
+    BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageLayout, ImageUsageFlags,
+    MemoryPropertyFlags, SharingMode,
 };
 use egui::{Color32, ImageData};
+use log::debug;
 use vk_mem::{
-    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage,
+    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateFlags, AllocatorCreateInfo,
+    MemoryUsage,
 };
 
+use crate::geom::vertex_3d::Vertex3D;
 
 use super::{
-    allocation_types::{AllocatedImage, VkBuffer}, command_buffers::VkCommandPool, device::VkDevice, image_util::{image_create_info, image_transition, image_view_create_info}, queue::VkQueue, swapchain::KHRSwapchain
+    allocation_types::{AllocatedImage, VkBuffer},
+    command_buffers::VkCommandPool,
+    device::VkDevice,
+    image_util::{image_create_info, image_transition, image_view_create_info},
+    queue::VkQueue,
+    swapchain::KHRSwapchain,
 };
 
 pub struct MemoryAllocator {
@@ -179,7 +188,7 @@ impl MemoryAllocator {
         let mut staging_buffer = self.allocate_single_buffer(
             buffer_size,
             queues,
-            BufferUsageFlags::TRANSFER_SRC,
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             MemoryUsage::Unknown,
             MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -206,8 +215,8 @@ impl MemoryAllocator {
         command_pool: &VkCommandPool,
     ) -> Result<VkBuffer, Error>
     where
-        T:Clone,
-    {       
+        T: Clone + Debug
+    {   
         let buffer_size = std::mem::size_of_val(buffer_elements) as u64;
         let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
@@ -269,8 +278,13 @@ impl MemoryAllocator {
                 .create_buffer(&buffer_info, &create_info)
                 .unwrap()
         };
-        //       unsafe { allocator.bind_buffer_memory(&allocation, buffer).unwrap() }
-        Ok(VkBuffer { buffer, allocation })
+        let info = BufferDeviceAddressInfo::default().buffer(buffer);
+        let address = unsafe { self.device.get_buffer_device_address(&info) };
+        Ok(VkBuffer {
+            buffer,
+            allocation,
+            address,
+        })
     }
 
     fn allocation_create_info(
