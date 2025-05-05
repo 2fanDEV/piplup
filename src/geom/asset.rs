@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
->>>>>>> 147f1f8 (test)
 use std::{fs::File, io::BufReader, path::Path, primitive, usize};
 
 use anyhow::Result;
@@ -51,6 +46,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
             let primitives = mesh.primitives();
             for primitive in primitives {
                 let reader = primitive.reader(|buffer| buffers[buffer.index()]);
+                
                 let surface = GeoSurface {
                     start_index: indices.len() as u32,
                     count: primitive.indices().unwrap().count(),
