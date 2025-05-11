@@ -141,7 +141,6 @@ impl VkPipeline {
                 pipeline_layout_create_info.push_constant_ranges(&push_constant_range);
         }
 
-        debug!("AAAAA LAYOUTS {:?}", layouts);
         if layouts.is_some() {
             pipeline_layout_create_info = pipeline_layout_create_info.set_layouts(layouts.unwrap());
         }

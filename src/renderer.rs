@@ -4,18 +4,11 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, BufferDeviceAddressCreateInfoEXT, BufferDeviceAddressInfo, ClearValue,
-        ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D,
-        Fence, FrontFace, ImageLayout, IndexType, Offset2D, PipelineBindPoint, PipelineLayout,
-        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
-        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, Viewport,
+        AttachmentLoadOp, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageCreateInfo, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
     },
 };
-use log::debug;
 use nalgebra::{Matrix4, Vector3, Vector4};
-use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo};
+use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
@@ -35,15 +28,11 @@ use crate::{
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
         surface,
-        swapchain::{ImageDetails, KHRSwapchain},
+        swapchain::KHRSwapchain,
     },
     egui::EguiRenderer,
     geom::{
-        mesh::{Mesh, MeshBuffers},
-        push_constants::PushConstant,
-        triangle_push_constant,
-        vertex_3d::Vertex3D,
-        VertexAttributes,
+        assets, mesh::{Mesh, MeshBuffers}, push_constants::PushConstant, triangle_push_constant, vertex_3d::Vertex3D, VertexAttributes
     },
 };
 
@@ -58,10 +47,9 @@ pub struct Renderer {
     swapchain: Arc<KHRSwapchain>,
     render_pass: Arc<VkRenderPass>,
     memory_allocator: Arc<MemoryAllocator>,
-    allocated_image: AllocatedImage,
-    image_details: Vec<ImageDetails>,
-    mesh_pipeline: VkPipeline,
-    mesh_triangle_buffers: Vec<MeshBuffers<Vertex3D, u32>>,
+    draw_image: AllocatedImage,
+    gltf_pipeline: VkPipeline,
+    gltf_buffers: Vec<MeshBuffers<Vertex3D, u32>>,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
     framebuffers: Vec<VkFrameBuffer>,
@@ -121,27 +109,8 @@ impl Renderer {
             AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device);
         alloc_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let memory_allocator = Arc::new(MemoryAllocator::new(vk_device.clone(), alloc_info));
-        let image_details = swapchain.create_image_details()?;
-        let allocated_image = memory_allocator.create_image(swapchain.clone())?;
-        /*       let compute_descriptor_allocator = DescriptorAllocator::new(
-                    vk_device.clone(),
-                    10,
-                    vec![PoolSizeRatio::new(DescriptorType::STORAGE_IMAGE, 1.0)],
-                );
-                let compute_descriptor_set_details = compute_descriptor_allocator.get_descriptors(
-                    allocated_image.image_view,
-                    ShaderStageFlags::COMPUTE,
-                    DescriptorType::STORAGE_IMAGE,
-                    None,
-                )?;
-
-                let compute_pipelines = VkPipeline::compute_pipelines(
-                    vk_device.clone(),
-                    &[compute_descriptor_set_details.layout],
-                    "shaders/compute_shader.spv",
-                )?;
-
-        */
+        let draw_image = memory_allocator.create_image(swapchain.clone(), Format::R16G16B16A16_SFLOAT, ImageUsageFlags::empty())?;
+ //       let depth_image = memory_allocator.create_image(swapchain.clone(), Format::D32_SFLOAT, ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)?;
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
@@ -153,7 +122,7 @@ impl Renderer {
             vk_device.clone(),
             render_pass.clone(),
             extent,
-            &image_details,
+            &[draw_image.image_details],
         );
         let mut frame_data: Vec<FrameData> = Vec::new();
         let command_pool = VkCommandPool::new(graphics_queue.clone());
@@ -175,7 +144,7 @@ impl Renderer {
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
 
-        let mesh_pipeline = VkPipeline::create_new_pipeline(
+        let gltf_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
@@ -243,8 +212,14 @@ impl Renderer {
             scissors: render_area,
             viewport: viewports[0],
         };
+            
+        let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
+            "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
+            scissors[0], 
+            viewports[0], memory_allocator.clone(), &[graphics_queue.clone()], command_pool.clone())?;
 
-        let mesh_triangle_buffers = vec![MeshBuffers::new(
+
+    /*  let mesh_triangle_buffers = vec![MeshBuffers::new(
             mesh,
             |elements, usage, mem_usage, mem_flags| {
                 memory_allocator
@@ -270,7 +245,7 @@ impl Renderer {
                     )
                     .unwrap()
             },
-        )?];
+        )?]; */
 
         let egui_renderer = EguiRenderer::new(
             vk_device.clone(),
@@ -291,13 +266,12 @@ impl Renderer {
             //    compute_pipelines,
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
-            mesh_pipeline,
+            gltf_pipeline,
             render_pass,
-            allocated_image,
+            draw_image,
             framebuffers,
-            image_details,
             memory_allocator,
-            mesh_triangle_buffers,
+            gltf_buffers: gltf_buffers.into_iter().map(|gltf| gltf.mesh_buffers).collect(),
             frame_data,
             frame_idx: 0,
             render_area,
@@ -352,8 +326,7 @@ impl Renderer {
                 window,
                 self.viewports.clone(),
                 self.render_area,
-                &self.framebuffers,
-            )?;
+                &self.framebuffers,)?;
             self.submit_queue(
                 **self.graphics_queue,
                 frame_data,
@@ -396,7 +369,7 @@ impl Renderer {
                     .clear_values(&clear_value),
                 SubpassContents::INLINE,
             );
-            for buffers in self.mesh_triangle_buffers.iter() {
+            for buffers in self.gltf_buffers.iter() {
                 self.draw_geom(frame_data.command_buffer, buffers, window);
             }
             self.device.cmd_end_render_pass(frame_data.command_buffer);
@@ -414,7 +387,7 @@ impl Renderer {
     ) {
         unsafe {
             self.device
-                .cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, *self.mesh_pipeline);
+                .cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, *self.gltf_pipeline);
 
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
             self.device.cmd_set_viewport(cmd, 0, &self.viewports);
@@ -422,7 +395,7 @@ impl Renderer {
             let push_constants_data = triangle_push_constant(buffer.vertex_buffer.address, window);
             self.device.cmd_push_constants(
                 cmd,
-                self.mesh_pipeline.pipeline_layout,
+                self.gltf_pipeline.pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
                 &push_constants_data,

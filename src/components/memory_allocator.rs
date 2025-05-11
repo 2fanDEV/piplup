@@ -1,18 +1,15 @@
 use std::{fmt::Debug, io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
-    BufferCreateFlags, BufferCreateInfo, BufferDeviceAddressCreateInfoEXT, BufferDeviceAddressInfo,
+    BufferCreateInfo, BufferDeviceAddressInfo,
     BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageLayout, ImageUsageFlags,
     MemoryPropertyFlags, SharingMode,
 };
 use egui::{Color32, ImageData};
-use log::debug;
 use vk_mem::{
     Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateFlags, AllocatorCreateInfo,
     MemoryUsage,
 };
-
-use crate::geom::vertex_3d::Vertex3D;
 
 use super::{
     allocation_types::{AllocatedImage, VkBuffer},
@@ -20,7 +17,7 @@ use super::{
     device::VkDevice,
     image_util::{image_create_info, image_transition, image_view_create_info},
     queue::VkQueue,
-    swapchain::KHRSwapchain,
+    swapchain::{ImageDetails, KHRSwapchain},
 };
 
 pub struct MemoryAllocator {
@@ -45,19 +42,20 @@ impl MemoryAllocator {
     }
 
     #[allow(deprecated)]
-    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>) -> Result<AllocatedImage, Error> {
+    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, flags: ImageUsageFlags) -> Result<AllocatedImage, Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
             .height(swapchain.details.window_sizes.height)
             .depth(1);
 
         let image_create_info = image_create_info(
-            Format::R16G16B16A16_SFLOAT,
+            format,
             ImageUsageFlags::TRANSFER_SRC
                 | ImageUsageFlags::TRANSFER_DST
                 | ImageUsageFlags::STORAGE
                 | ImageUsageFlags::COLOR_ATTACHMENT
-                | ImageUsageFlags::SAMPLED,
+                | ImageUsageFlags::SAMPLED
+                | flags,
             extent,
             None,
         );
@@ -73,7 +71,7 @@ impl MemoryAllocator {
         };
 
         let image_view_create_info =
-            image_view_create_info(image, Format::R16G16B16A16_SFLOAT, ImageAspectFlags::COLOR);
+            image_view_create_info(image, format, ImageAspectFlags::COLOR);
         let image_view = unsafe {
             swapchain
                 .device
@@ -81,15 +79,19 @@ impl MemoryAllocator {
                 .unwrap()
         };
         let allocated_image = AllocatedImage::new(
-            image,
-            image_view,
+            ImageDetails {
+                image,
+                image_view
+            },
             allocation,
             extent,
             Format::R16G16B16A16_SFLOAT,
         );
         Ok(allocated_image)
-    }
+  }
+        
 
+    //egui only 
     pub fn create_texture_image(
         &self,
         queues: &[Arc<VkQueue>],
@@ -168,8 +170,10 @@ impl MemoryAllocator {
                 .unwrap()
         };
         Ok(AllocatedImage {
-            image,
-            image_view,
+            image_details: ImageDetails {
+                image,
+                image_view,
+            },
             allocation,
             extent,
             image_format: format,
@@ -273,7 +277,7 @@ impl MemoryAllocator {
             flags: AllocationCreateFlags::MAPPED,
             ..Default::default()
         };
-        let (buffer, allocation) = unsafe {
+      let (buffer, allocation) = unsafe {
             self.allocator
                 .create_buffer(&buffer_info, &create_info)
                 .unwrap()
@@ -285,6 +289,7 @@ impl MemoryAllocator {
             allocation,
             address,
         })
+    
     }
 
     fn allocation_create_info(

@@ -121,7 +121,6 @@ impl EguiRenderer {
             }
 
             for delta in textures_delta_set {
-                debug!("DELTA: {:?}", delta.0);
                 texture_informations.insert(
                     delta.0,
                     TextureInformationData::new(
@@ -150,7 +149,7 @@ impl EguiRenderer {
 
                             Ok(egui_descriptor_allocator
                                 .get_descriptors(
-                                    &allocated_image.image_view,
+                                    &allocated_image.image_details.image_view,
                                     ShaderStageFlags::FRAGMENT,
                                     DescriptorType::COMBINED_IMAGE_SAMPLER,
                                     sampler,
@@ -168,7 +167,7 @@ impl EguiRenderer {
                 egui_cmd_pool.device.clone(),
                 cmd,
                 0,
-                tex_data.allocated_image.image,
+                tex_data.allocated_image.image_details.image,
                 ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 ImageLayout::GENERAL,
             );

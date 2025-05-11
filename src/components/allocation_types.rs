@@ -15,8 +15,7 @@ use super::{
 
 #[derive(Debug)]
 pub struct AllocatedImage {
-    pub image: Image,
-    pub image_view: ImageView,
+    pub image_details: ImageDetails,
     pub allocation: vk_mem::Allocation,
     pub extent: Extent3D,
     pub image_format: Format,
@@ -24,15 +23,13 @@ pub struct AllocatedImage {
 
 impl AllocatedImage {
     pub fn new(
-        image: Image,
-        image_view: ImageView,
+        image_details: ImageDetails,
         allocation: Allocation,
         extent: Extent3D,
         image_format: Format,
     ) -> Self {
         Self {
-            image,
-            image_view,
+            image_details,
             extent,
             allocation,
             image_format,
@@ -82,8 +79,8 @@ impl VkFrameBuffer {
     ) -> Vec<VkFrameBuffer> {
         image_details
             .iter()
-            .map(|image_detail| {
-                Self::new(vk_device.clone(), render_pass.clone(), extent, image_detail)
+            .map(|img| {
+                Self::new(vk_device.clone(), render_pass.clone(), extent, img)
             })
             .collect::<Vec<VkFrameBuffer>>()
     }
