@@ -1,7 +1,7 @@
 use core::fmt::{Debug};
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::ColorComponentFlags;
+use ash::vk::{ColorComponentFlags, CompareOp, PipelineDepthStencilStateCreateFlags, PipelineDepthStencilStateCreateInfo, StencilOpState};
 use ash::vk::{
     BlendFactor, BlendOp, ComputePipelineCreateInfo, CullModeFlags, DescriptorSetLayout,
     DynamicState, Extent2D, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Offset2D, Pipeline,
@@ -150,6 +150,7 @@ impl VkPipeline {
                 .unwrap()
         };
         let color_blending_state_info = create_color_blending_state(color_blending_attachments);
+        let depth_stencil_state_info = create_depth_stencil_state();
         let graphics_pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .stages(&pipeline_stage_create_info)
             .dynamic_state(&dynamic_states_create_info)
@@ -163,8 +164,10 @@ impl VkPipeline {
             .subpass(0)
             .render_pass(**render_pass)
             .base_pipeline_index(-1)
-            .base_pipeline_handle(Pipeline::null());
-        //        .depth_stencil_state(depth_stencil_state);
+            .base_pipeline_handle(Pipeline::null())
+            .depth_stencil_state(&depth_stencil_state_info);
+
+
         let pipeline = unsafe {
             &device
                 .create_graphics_pipelines(
@@ -215,6 +218,17 @@ impl VkPipeline {
 
         Ok(pipelines)
     }
+}
+
+fn create_depth_stencil_state<'a>() -> PipelineDepthStencilStateCreateInfo<'a> {
+    PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(true)
+        .depth_write_enable(true)
+        .stencil_test_enable(false)
+        .depth_bounds_test_enable(false)
+        .depth_compare_op(CompareOp::LESS)
+        .min_depth_bounds(0.0)
+        .max_depth_bounds(1.0)
 }
 
 pub fn dynamic_states(states: &[DynamicState]) -> PipelineDynamicStateCreateInfo<'_> {
@@ -314,3 +328,4 @@ pub fn create_color_blending_state(
         .logic_op_enable(false)
         .blend_constants([0.0, 0.0, 0.0, 0.0])
 }
+

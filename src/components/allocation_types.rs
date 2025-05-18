@@ -5,7 +5,6 @@ use ash::vk::{
     BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Format, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageView, MemoryPropertyFlags, Offset3D
 };
 use ash::vk::Buffer;
-use log::debug;
 use vk_mem::Allocation;
 
 use super::{
@@ -37,8 +36,16 @@ impl AllocatedImage {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum IDENTIFIER {
+    SWAPCHAIN,
+    DRAW, 
+    DEPTH,
+}
+
 #[allow(dead_code)]
 pub struct VkFrameBuffer {
+    pub identifier: IDENTIFIER,
     frame_buffer: Framebuffer,
     device: Arc<VkDevice>,
 }
@@ -53,12 +60,13 @@ impl Deref for VkFrameBuffer {
 
 impl VkFrameBuffer {
     fn new(
+        identifier: IDENTIFIER,
         device: Arc<VkDevice>,
         render_pass: Arc<VkRenderPass>,
         extent: Extent2D,
-        image_details: &ImageDetails,
+        image_details: &[ImageDetails],
     ) -> Self {
-        let image_views = vec![image_details.image_view];
+        let image_views = image_details.iter().map(|detail| detail.image_view).collect::<Vec<ImageView>>();
         let create_info = FramebufferCreateInfo::default()
             .render_pass(**render_pass)
             .width(extent.width)
@@ -66,12 +74,14 @@ impl VkFrameBuffer {
             .layers(1)
             .attachments(&image_views);
         Self {
+            identifier,
             device: device.clone(),
             frame_buffer: unsafe { device.create_framebuffer(&create_info, None).unwrap() },
         }
     }
 
     pub fn create_framebuffers(
+        identifier: IDENTIFIER,
         vk_device: Arc<VkDevice>,
         render_pass: Arc<VkRenderPass>,
         extent: Extent2D,
@@ -79,10 +89,20 @@ impl VkFrameBuffer {
     ) -> Vec<VkFrameBuffer> {
         image_details
             .iter()
-            .map(|img| {
-                Self::new(vk_device.clone(), render_pass.clone(), extent, img)
+            .map(|img| -> VkFrameBuffer {
+                Self::new(identifier, vk_device.clone(), render_pass.clone(), extent,&[*img])
             })
             .collect::<Vec<VkFrameBuffer>>()
+    }
+
+    pub fn create_framebuffer(
+        identifier: IDENTIFIER,
+        vk_device: Arc<VkDevice>,
+        render_pass: Arc<VkRenderPass>,
+        extent: Extent2D,
+        image_details: &[ImageDetails],
+    ) -> VkFrameBuffer { 
+        Self::new(identifier, vk_device.clone(), render_pass.clone(), extent, image_details)
     }
 }
 

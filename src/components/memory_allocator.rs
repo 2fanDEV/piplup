@@ -42,7 +42,7 @@ impl MemoryAllocator {
     }
 
     #[allow(deprecated)]
-    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, flags: ImageUsageFlags) -> Result<AllocatedImage, Error> {
+    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, initial_layout: Option<ImageLayout>, flags: ImageUsageFlags, aspect_flags: ImageAspectFlags) -> Result<AllocatedImage, Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
             .height(swapchain.details.window_sizes.height)
@@ -52,12 +52,10 @@ impl MemoryAllocator {
             format,
             ImageUsageFlags::TRANSFER_SRC
                 | ImageUsageFlags::TRANSFER_DST
-                | ImageUsageFlags::STORAGE
-                | ImageUsageFlags::COLOR_ATTACHMENT
                 | ImageUsageFlags::SAMPLED
                 | flags,
             extent,
-            None,
+            initial_layout
         );
 
         let mut allocation_create_info = AllocationCreateInfo::default();
@@ -71,7 +69,7 @@ impl MemoryAllocator {
         };
 
         let image_view_create_info =
-            image_view_create_info(image, format, ImageAspectFlags::COLOR);
+            image_view_create_info(image, format, aspect_flags);
         let image_view = unsafe {
             swapchain
                 .device
@@ -90,7 +88,6 @@ impl MemoryAllocator {
         Ok(allocated_image)
   }
         
-
     //egui only 
     pub fn create_texture_image(
         &self,

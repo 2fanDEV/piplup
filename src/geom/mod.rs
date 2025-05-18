@@ -1,4 +1,4 @@
-use ash::vk::{DeviceAddress, VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::vk::{DeviceAddress, Extent2D, VertexInputAttributeDescription, VertexInputBindingDescription};
 use log::debug;
 use nalgebra::{Matrix4, Orthographic3, Perspective3, Vector3};
 use push_constants::PushConstant;
@@ -36,11 +36,10 @@ pub fn egui_push_constant(window: &Window) -> Vec<u8> {
     push_constant.raw_data_of_T()
 }
 
-pub fn triangle_push_constant(buffer_address: DeviceAddress, window: &Window) -> Vec<u8> {
-    let (height, width) = (window.inner_size().height, window.inner_size().width);
-    let view = Matrix4::<f32>::new_translation(&Vector3::new(0.0, 0.0, -5.0));
+pub fn triangle_push_constant(buffer_address: DeviceAddress, extent: Extent2D) -> Vec<u8> {
+    let (height, width) = (extent.height, extent.width);
+    let view = Matrix4::<f32>::new_translation(&Vector3::new(0.0, 0.0, -2.0));
         let mut proj = Perspective3::new(90.0_f32.to_radians(), (width as f32/height as f32) as f32,  0.1, 1000.0).to_homogeneous();
-    proj[(1, 1)] = proj[(1, 1)] * -1.0;
     let wm = proj * view;
     let push_constant = PushConstant::new(wm, buffer_address);
     push_constant.raw_data()

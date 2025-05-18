@@ -19,7 +19,7 @@ use winit::window::Window;
 
 use crate::{
     components::{
-        allocation_types::VkFrameBuffer,
+        allocation_types::{VkFrameBuffer, IDENTIFIER},
         command_buffers::{self, VkCommandPool},
         descriptors::{DescriptorAllocator, PoolSizeRatio},
         device::VkDevice,
@@ -31,7 +31,7 @@ use crate::{
         },
         queue::VkQueue,
         render_pass::VkRenderPass,
-        sampler::VkSampler,
+        sampler::VkSampler, swapchain::ImageDetails,
     },
     geom::{egui_push_constant, mesh::MeshBuffers, VertexAttributes},
     renderer::ImageIndex,
@@ -60,6 +60,7 @@ pub struct EguiRenderer {
     pipelines: Vec<VkPipeline>,
     render_pass: Arc<VkRenderPass>,
     extent: Extent2D,
+    framebuffers: Vec<VkFrameBuffer>
 }
 
 impl EguiRenderer {
@@ -70,6 +71,7 @@ impl EguiRenderer {
         graphics_queue: Arc<VkQueue>,
         extent: Extent2D,
         format: Format,
+        image_details: Vec<ImageDetails>
     ) -> Result<Self> {
         let egui_cmd_pool: VkCommandPool =
             command_buffers::VkCommandPool::new(graphics_queue.clone());
@@ -84,6 +86,7 @@ impl EguiRenderer {
             )],
         );
 
+
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
         let render_pass = Arc::new(VkRenderPass::new(
@@ -92,7 +95,17 @@ impl EguiRenderer {
             ImageLayout::GENERAL,
             ImageLayout::PRESENT_SRC_KHR,
             AttachmentLoadOp::LOAD,
+            false
         )?);
+
+        let framebuffers = VkFrameBuffer::create_framebuffers(
+            IDENTIFIER::SWAPCHAIN,
+            vk_device.clone(),
+            render_pass.clone(),
+            extent,
+            &image_details
+        );
+
         #[allow(irrefutable_let_patterns)]
         while let full_output = integration.run(
             |ctx| {
@@ -237,6 +250,7 @@ impl EguiRenderer {
             pipelines: egui_pipelines,
             memory_allocator,
             render_pass,
+            framebuffers,
             graphics_queue,
             mesh_buffers: vec![],
         })
@@ -249,7 +263,6 @@ impl EguiRenderer {
         window: &Window,
         viewports: Vec<Viewport>,
         render_area: Rect2D,
-        framebuffers: &[VkFrameBuffer],
     ) -> Result<()> {
         let full_output = self.integration.run(
             |ctx| {
@@ -312,7 +325,7 @@ impl EguiRenderer {
             command_buffer,
             image_index,
             &self.mesh_buffers,
-            framebuffers,
+            &self.framebuffers,
             **self.render_pass,
             render_area,
             viewports,

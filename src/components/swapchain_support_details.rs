@@ -59,7 +59,7 @@ impl SwapchainSupportDetails {
         self.formats
             .into_iter()
             .filter(|format| {
-                format.format.eq(&Format::R16G16B16A16_SFLOAT)
+                format.format.eq(&Format::R16G16B16A16_SFLOAT) 
                     && format.color_space.eq(&ColorSpaceKHR::SRGB_NONLINEAR)
             })
             .collect::<Vec<SurfaceFormatKHR>>()

@@ -1,13 +1,19 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::{
-    vk::{DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceVulkan12Features, QueueFlags, EXT_BUFFER_DEVICE_ADDRESS_NAME, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME},
+    vk::{
+        DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceVulkan12Features,
+        QueueFlags, EXT_BUFFER_DEVICE_ADDRESS_NAME, KHR_PORTABILITY_SUBSET_NAME,
+        KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_NAME, KHR_SWAPCHAIN_NAME,
+    },
     Device, Instance,
 };
 use log::error;
 use winit::window::{self, Window};
 
-use super::{instance::VkInstance, surface::KHRSurface, swapchain_support_details::SwapchainSupportDetails};
+use super::{
+    instance::VkInstance, surface::KHRSurface, swapchain_support_details::SwapchainSupportDetails,
+};
 
 #[derive(Default, Clone, Copy)]
 pub struct QueueFamilyIndices {
@@ -19,7 +25,7 @@ impl QueueFamilyIndices {
     pub fn find_queue_family_indices(
         physical_device: PhysicalDevice,
         instance: &Instance,
-        surface: Arc<KHRSurface>
+        surface: Arc<KHRSurface>,
     ) -> QueueFamilyIndices {
         let queue_family_properties =
             unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -33,7 +39,8 @@ impl QueueFamilyIndices {
             if property.queue_flags.contains(QueueFlags::GRAPHICS) {
                 indices.graphics_q_idx = Some(idx as u32);
                 let surface_support = unsafe {
-                    surface.instance
+                    surface
+                        .instance
                         .get_physical_device_surface_support(physical_device, idx as u32, **surface)
                         .unwrap()
                 };
@@ -53,7 +60,7 @@ impl QueueFamilyIndices {
 pub struct VkDevice {
     pub device: Device,
     pub physical_device: PhysicalDevice,
-    pub instance: Instance
+    pub instance: Instance,
 }
 
 impl Deref for VkDevice {
@@ -71,18 +78,14 @@ impl VkDevice {
         window: &Window,
     ) -> Result<VkDevice, Error> {
         let physical_device = Self::pick_physical_device(&instance, &surface, window);
-        let device = match Self::create_device(
-            &instance,
-            physical_device,
-            surface,
-        ) {
+        let device = match Self::create_device(&instance, physical_device, surface) {
             Some(device) => device,
-            None => panic!()
+            None => panic!(),
         };
         Ok(Self {
             physical_device: physical_device.unwrap(),
             device,
-            instance: instance.instance.clone()
+            instance: instance.instance.clone(),
         })
     }
 
@@ -96,7 +99,7 @@ impl VkDevice {
                 let indices = QueueFamilyIndices::find_queue_family_indices(
                     physical_device,
                     instance,
-                    surface
+                    surface,
                 );
                 let features = unsafe { instance.get_physical_device_features(physical_device) };
                 let extensions = vec![
@@ -104,7 +107,9 @@ impl VkDevice {
                     KHR_PORTABILITY_SUBSET_NAME.as_ptr(),
                 ];
 
-                let mut extra_features = PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
+                let mut extra_features = PhysicalDeviceVulkan12Features::default()
+                    .buffer_device_address(true)
+                    .separate_depth_stencil_layouts(true);
                 let device_queue_create_infos = vec![DeviceQueueCreateInfo::default()
                     .queue_family_index(indices.graphics_q_idx.unwrap())
                     .queue_priorities(&[1.0])];
@@ -112,7 +117,7 @@ impl VkDevice {
                     .enabled_features(&features)
                     .queue_create_infos(&device_queue_create_infos)
                     .enabled_features(&features)
-                    .enabled_extension_names(&extensions) 
+                    .enabled_extension_names(&extensions)
                     .push_next(&mut extra_features);
                 let device = unsafe {
                     instance
@@ -180,19 +185,13 @@ impl VkDevice {
         surface: Arc<KHRSurface>,
         window: &Window,
     ) -> bool {
-        let queue_family_indices = QueueFamilyIndices::find_queue_family_indices(
-            device,
-            instance,
-            surface.clone()
-        );
+        let queue_family_indices =
+            QueueFamilyIndices::find_queue_family_indices(device, instance, surface.clone());
         let _features = unsafe { instance.get_physical_device_features(device) };
         let _properties = unsafe { instance.get_physical_device_properties(device) };
-        let swapchain_support_details = SwapchainSupportDetails::get_swapchain_support_details(
-            device,
-            surface.clone(),
-            window,
-        )
-        .unwrap();
+        let swapchain_support_details =
+            SwapchainSupportDetails::get_swapchain_support_details(device, surface.clone(), window)
+                .unwrap();
         queue_family_indices.is_complete()
             && Self::check_device_extensions(device, instance)
             && swapchain_support_details.is_swapchain_adequate()

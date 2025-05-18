@@ -30,11 +30,18 @@ impl VkRenderPass {
         initial_layout: ImageLayout,
         final_layout: ImageLayout,
         attachment_load_op: AttachmentLoadOp,
+        depth: bool
     ) -> Result<VkRenderPass, Error> {
-        let color_attachment =
+        let attachment =
             create_attachment(format, initial_layout, final_layout, attachment_load_op);
-        let color_attachment_ref = vec![create_attachment_ref()];
-        let subpass_description = create_subpass_description(&color_attachment_ref);
+        let attachment_ref = vec![create_attachment_ref()];
+        let depth_attachment = if depth {
+            Some(create_attachment(Format::D32_SFLOAT, ImageLayout::UNDEFINED, ImageLayout::DEPTH_ATTACHMENT_OPTIMAL, AttachmentLoadOp::CLEAR))
+        } else {
+            None
+        };
+
+        let subpass_description = create_subpass_description(&attachment_ref);
         let subpass_dependency = create_subpass_dependency(
             DependencyFlags::BY_REGION,
             0,
@@ -44,12 +51,19 @@ impl VkRenderPass {
             AccessFlags::COLOR_ATTACHMENT_READ,
             AccessFlags::SHADER_READ,
         );
+        let attachments = 
+            if depth {
+                vec![attachment, depth_attachment.unwrap()]
+            } else { 
+                vec![attachment]
+            };
+
         Ok(unsafe {
             Self {
                 render_pass: device
                     .create_render_pass(
                         &render_pass_create_info(
-                            &[color_attachment],
+                            &attachments,
                             &[subpass_description],
                             &[subpass_dependency],
                         ),
@@ -70,7 +84,7 @@ fn render_pass_create_info<'a>(
 ) -> RenderPassCreateInfo<'a> {
     RenderPassCreateInfo::default()
         .attachments(attachments)
-        .subpasses(description)
+        .subpasses(description) 
         .dependencies(dependencies)
 }
 
@@ -104,15 +118,14 @@ fn create_attachment(
         .samples(SampleCountFlags::TYPE_1)
         .load_op(load_op)
         .store_op(AttachmentStoreOp::STORE)
-        .stencil_load_op(AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(AttachmentLoadOp::CLEAR)
+        .stencil_store_op(AttachmentStoreOp::STORE)
         .initial_layout(initial_layout)
         .final_layout(final_layout)
 }
 
 fn create_attachment_ref() -> AttachmentReference {
-    AttachmentReference::default().layout(ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-}
+    AttachmentReference::default().layout(ImageLayout::COLOR_ATTACHMENT_OPTIMAL)}
 
 fn create_subpass_description(color_attachments: &[AttachmentReference]) -> SubpassDescription<'_> {
     SubpassDescription::default()

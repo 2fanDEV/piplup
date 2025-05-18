@@ -46,7 +46,7 @@ pub fn image_view_create_info<'a>(
 pub fn image_transition(
     device: Arc<VkDevice>,
     command_buffer: CommandBuffer,
-    index: u32,
+    queue_family_idx: u32,
     image: Image,
     current_image_layout: ImageLayout,
     new_image_layout: ImageLayout,
@@ -64,8 +64,8 @@ pub fn image_transition(
         .dst_access_mask(AccessFlags::SHADER_READ)
         .old_layout(current_image_layout)
         .new_layout(new_image_layout)
-        .src_queue_family_index(index)
-        .dst_queue_family_index(index)
+        .src_queue_family_index(queue_family_idx)
+        .dst_queue_family_index(queue_family_idx)
         .image(image)
         .subresource_range(sub_resource_range);
 
