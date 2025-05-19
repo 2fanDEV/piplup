@@ -1,10 +1,15 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::{
-    DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
-    DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
-    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
-    DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ImageView, ShaderStageFlags, WriteDescriptorSet,
+use anyhow::{anyhow, Result};
+use ash::{
+    vk::{
+        DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
+        DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
+        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
+        DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ImageView, ShaderStageFlags,
+        WriteDescriptorSet,
+    },
+    Device,
 };
 
 use super::{device::VkDevice, sampler::VkSampler};
@@ -24,10 +29,14 @@ impl Deref for DescriptorSetDetails {
 }
 
 pub struct DescriptorAllocator {
-    pool: DescriptorPool,
     device: Arc<VkDevice>,
+    ratios: Vec<PoolSizeRatio>,
+    full_pools: Vec<DescriptorPool>,
+    ready_pools: Vec<DescriptorPool>,
+    sets_per_pool: u32,
 }
 
+#[derive(Copy, Clone)]
 pub struct PoolSizeRatio {
     descriptor_type: DescriptorType,
     ratio: f32,
@@ -52,27 +61,57 @@ impl DescriptorAllocator {
         max_sets: u32,
         pool_sizes: Vec<PoolSizeRatio>,
     ) -> DescriptorAllocator {
-        let mut descriptor_pool_sizes: Vec<DescriptorPoolSize> = vec![];
+        let mut ready_pools = vec![];
+        let full_pools = vec![];
+        let pool = Self::create_pool(&device, max_sets, &pool_sizes).unwrap();
+        ready_pools.push(pool);
+
+        Self {
+            device: device.clone(),
+            ratios: pool_sizes,
+            full_pools,
+            ready_pools,
+            sets_per_pool: (max_sets as f32 * 1.5) as u32,
+        }
+    }
+
+    fn get_pool(&mut self) -> Result<DescriptorPool> {
+        let mut new_pool: Option<DescriptorPool> = None;
+        if !self.ready_pools.is_empty() {
+            new_pool = Some(self.ready_pools.pop().unwrap());
+        } else {
+            new_pool = Some(Self::create_pool(
+                &self.device,
+                self.sets_per_pool,
+                &self.ratios,
+            )?)
+        }
+        Ok(new_pool.unwrap())
+    }
+
+    fn create_pool(
+        device: &Device,
+        set_count: u32,
+        pool_sizes: &[PoolSizeRatio],
+    ) -> Result<DescriptorPool> {
+        let mut descriptor_pool_sizes = vec![];
         for pool_size in pool_sizes {
             descriptor_pool_sizes.push(
                 DescriptorPoolSize::default()
                     .ty(pool_size.descriptor_type)
-                    .descriptor_count(pool_size.ratio as u32 * max_sets),
+                    .descriptor_count(pool_size.ratio as u32 * set_count),
             );
         }
         let create_info = DescriptorPoolCreateInfo::default()
-            .max_sets(max_sets)
+            .max_sets(set_count)
             .pool_sizes(&descriptor_pool_sizes)
             .flags(DescriptorPoolCreateFlags::empty());
 
-        Self {
-            device: device.clone(),
-            pool: unsafe { device.create_descriptor_pool(&create_info, None).unwrap() },
-        }
+        unsafe { Ok(device.create_descriptor_pool(&create_info, None).unwrap()) }
     }
 
-    pub fn get_descriptors(
-        &self,
+    pub fn write_descriptors(
+        &mut self,
         image_view: &ImageView,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
@@ -114,30 +153,65 @@ impl DescriptorAllocator {
         })
     }
 
-    pub fn reset_descriptors(&self, device: Arc<VkDevice>) {
+    pub fn reset_descriptors(&mut self, device: Arc<VkDevice>) {
         unsafe {
-            device
-                .reset_descriptor_pool(self.pool, DescriptorPoolResetFlags::empty())
-                .unwrap()
+            for pool in &self.ready_pools {
+                device
+                    .reset_descriptor_pool(*pool, DescriptorPoolResetFlags::empty())
+                    .unwrap()
+            }
+
+            for pool in &self.full_pools {
+                device
+                    .reset_descriptor_pool(*pool, DescriptorPoolResetFlags::empty())
+                    .unwrap();
+                self.ready_pools.push(*pool);
+            }
+
+            self.full_pools.clear();
         }
     }
 
-    pub fn destroy_pool(&self, device: Arc<VkDevice>) {
-        unsafe { device.destroy_descriptor_pool(self.pool, None) }
+    pub fn destroy_pools(&mut self, device: Arc<VkDevice>) {
+        for pool in &self.ready_pools {
+            unsafe { device.destroy_descriptor_pool(*pool, None) }
+        }
+        self.ready_pools.clear();
+        for pool in &self.full_pools {
+            unsafe { device.destroy_descriptor_pool(*pool, None) }
+        }
+        self.full_pools.clear();
     }
 
-    fn allocate(&self, device: Arc<VkDevice>, layouts: &[DescriptorSetLayout]) -> DescriptorSet {
+    fn allocate(
+        &mut self,
+        device: Arc<VkDevice>,
+        layouts: &[DescriptorSetLayout],
+    ) -> DescriptorSet {
+        let mut pool_to_use = self.get_pool().unwrap();
         let mut allocate_info = DescriptorSetAllocateInfo::default()
-            .descriptor_pool(self.pool)
+            .descriptor_pool(pool_to_use)
             .set_layouts(layouts);
         allocate_info.descriptor_set_count = 1;
 
-        unsafe {
-            *device
-                .allocate_descriptor_sets(&allocate_info)
-                .unwrap().first()
-                .unwrap()
-        }
+        let descriptor_sets = match unsafe { device.allocate_descriptor_sets(&allocate_info) } {
+            Ok(sets) => sets,
+            Err(error) => {
+                if error == ash::vk::Result::ERROR_OUT_OF_POOL_MEMORY
+                    || error == ash::vk::Result::ERROR_FRAGMENTED_POOL
+                {
+                    if !self.full_pools.contains(&pool_to_use) {
+                        self.full_pools.push(pool_to_use);
+                    };
+                    pool_to_use = self.get_pool().unwrap();
+                    allocate_info.descriptor_pool = pool_to_use;
+                    unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap() }
+                } else {
+                    panic!("Something else went wrong here");
+                }
+            }
+        };
+        descriptor_sets[0]
     }
 }
 

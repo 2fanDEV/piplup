@@ -231,35 +231,6 @@ impl Renderer {
             render_pass.clone(),
         )?;
 
-        let mesh = Mesh::<Vertex3D, u32> {
-            vertices: vec![
-                Vertex3D {
-                    pos: Vector3::new(0.5, -0.5, 0.0),
-                    color: Vector4::new(0.0, 0.0, 0.0, 1.0),
-                    ..Default::default()
-                },
-                Vertex3D {
-                    pos: Vector3::new(0.5, 0.5, 0.0),
-                    color: Vector4::new(0.5, 0.5, 0.5, 1.0),
-                    ..Default::default()
-                },
-                Vertex3D {
-                    pos: Vector3::new(-0.5, -0.5, 0.0),
-                    color: Vector4::new(1.0, 0.0, 0.0, 1.0),
-                    ..Default::default()
-                },
-                Vertex3D {
-                    pos: Vector3::new(-0.5, 0.5, 0.0),
-                    color: Vector4::new(0.0, 1.0, 1.0, 0.0),
-                    ..Default::default()
-                },
-            ],
-            indices: vec![0, 1, 2, 2, 1, 3],
-            texture_id: None,
-            scissors: render_area,
-            viewport: viewports[0],
-        };
-
         let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
@@ -417,7 +388,7 @@ impl Renderer {
                 },
             }, ClearValue {
                 depth_stencil: ClearDepthStencilValue {
-                        depth: 0.0,
+                        depth: 1.0,
                         stencil: 0
                 }
             }];

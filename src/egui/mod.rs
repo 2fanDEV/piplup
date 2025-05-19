@@ -77,7 +77,7 @@ impl EguiRenderer {
             command_buffers::VkCommandPool::new(graphics_queue.clone());
         let egui_font_sampler = VkSampler::get_font_sampler(vk_device.clone());
         let egui_texture_sampler = VkSampler::get_texture_sampler(vk_device.clone());
-        let egui_descriptor_allocator = DescriptorAllocator::new(
+        let mut egui_descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             10,
             vec![PoolSizeRatio::new(
@@ -161,7 +161,7 @@ impl EguiRenderer {
                             };
 
                             Ok(egui_descriptor_allocator
-                                .get_descriptors(
+                                .write_descriptors(
                                     &allocated_image.image_details.image_view,
                                     ShaderStageFlags::FRAGMENT,
                                     DescriptorType::COMBINED_IMAGE_SAMPLER,

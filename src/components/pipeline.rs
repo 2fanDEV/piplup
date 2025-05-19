@@ -1,7 +1,6 @@
-use core::fmt::{Debug};
+use core::fmt::Debug;
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use ash::vk::{ColorComponentFlags, CompareOp, PipelineDepthStencilStateCreateFlags, PipelineDepthStencilStateCreateInfo, StencilOpState};
 use ash::vk::{
     BlendFactor, BlendOp, ComputePipelineCreateInfo, CullModeFlags, DescriptorSetLayout,
     DynamicState, Extent2D, FrontFace, GraphicsPipelineCreateInfo, LogicOp, Offset2D, Pipeline,
@@ -13,12 +12,13 @@ use ash::vk::{
     PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
+use ash::vk::{
+    ColorComponentFlags, CompareOp, PipelineDepthStencilStateCreateFlags,
+    PipelineDepthStencilStateCreateInfo, StencilOpState,
+};
 use log::debug;
 
-
-use super::{
-    device::VkDevice, render_pass::VkRenderPass, util::load_shader_module,
-};
+use super::{device::VkDevice, render_pass::VkRenderPass, util::load_shader_module};
 
 #[derive(Debug, Clone)]
 #[allow(unused)]
@@ -29,11 +29,7 @@ pub struct ShaderInformation {
 }
 
 impl ShaderInformation {
-    pub fn new(
-        shader_file_path: String,
-        stages: ShaderStageFlags,
-        entry_point: String,
-    ) -> Self {
+    pub fn new(shader_file_path: String, stages: ShaderStageFlags, entry_point: String) -> Self {
         Self {
             shader_file_path,
             stages,
@@ -166,7 +162,6 @@ impl VkPipeline {
             .base_pipeline_index(-1)
             .base_pipeline_handle(Pipeline::null())
             .depth_stencil_state(&depth_stencil_state_info);
-
 
         let pipeline = unsafe {
             &device
@@ -318,7 +313,37 @@ pub fn create_color_blending_attachment_state(
         .alpha_blend_op(alpha_blend_op.unwrap())
 }
 
+pub fn additive_blending() -> PipelineColorBlendAttachmentState {
+    create_color_blending_attachment_state(
+        ColorComponentFlags::R
+            | ColorComponentFlags::G
+            | ColorComponentFlags::B
+            | ColorComponentFlags::A,
+        true,
+        Some(BlendFactor::SRC_ALPHA),
+        Some(BlendFactor::ONE),
+        Some(BlendOp::ADD),
+        Some(BlendFactor::ONE),
+        Some(BlendFactor::ZERO),
+        Some(BlendOp::ADD),
+    )
+}
 
+pub fn alpha_blending() -> PipelineColorBlendAttachmentState {
+    create_color_blending_attachment_state(
+        ColorComponentFlags::R
+            | ColorComponentFlags::G
+            | ColorComponentFlags::B
+            | ColorComponentFlags::A,
+        true,
+        Some(BlendFactor::SRC_ALPHA),
+        Some(BlendFactor::ONE),
+        Some(BlendOp::ADD),
+        Some(BlendFactor::ONE),
+        Some(BlendFactor::ZERO),
+        Some(BlendOp::ADD),
+    )
+}
 pub fn create_color_blending_state(
     attachments: &[PipelineColorBlendAttachmentState],
 ) -> PipelineColorBlendStateCreateInfo {
@@ -328,4 +353,3 @@ pub fn create_color_blending_state(
         .logic_op_enable(false)
         .blend_constants([0.0, 0.0, 0.0, 0.0])
 }
-

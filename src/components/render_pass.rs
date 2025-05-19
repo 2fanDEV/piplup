@@ -30,18 +30,41 @@ impl VkRenderPass {
         initial_layout: ImageLayout,
         final_layout: ImageLayout,
         attachment_load_op: AttachmentLoadOp,
-        depth: bool
+        depth: bool,
     ) -> Result<VkRenderPass, Error> {
-        let attachment =
-            create_attachment(format, initial_layout, final_layout, attachment_load_op);
-        let attachment_ref = vec![create_attachment_ref()];
+        let attachment = create_attachment(
+            format,
+            initial_layout,
+            final_layout,
+            AttachmentStoreOp::STORE,
+            attachment_load_op,
+        );
+        let attachment_ref = vec![create_attachment_ref(
+            ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            0,
+        )];
         let depth_attachment = if depth {
-            Some(create_attachment(Format::D32_SFLOAT, ImageLayout::UNDEFINED, ImageLayout::DEPTH_ATTACHMENT_OPTIMAL, AttachmentLoadOp::CLEAR))
+            Some(create_attachment(
+                Format::D32_SFLOAT,
+                ImageLayout::UNDEFINED,
+                ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
+                AttachmentStoreOp::DONT_CARE,
+                AttachmentLoadOp::CLEAR,
+            ))
+        } else {
+            None
+        };
+        let depth_ref = if depth {
+            Some(create_attachment_ref(
+                ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                1,
+            ))
         } else {
             None
         };
 
-        let subpass_description = create_subpass_description(&attachment_ref);
+        let subpass_description = create_subpass_description(&attachment_ref, depth_ref.as_ref());
+
         let subpass_dependency = create_subpass_dependency(
             DependencyFlags::BY_REGION,
             0,
@@ -51,20 +74,19 @@ impl VkRenderPass {
             AccessFlags::COLOR_ATTACHMENT_READ,
             AccessFlags::SHADER_READ,
         );
-        let attachments = 
-            if depth {
-                vec![attachment, depth_attachment.unwrap()]
-            } else { 
-                vec![attachment]
-            };
-
+        let attachments = if depth {
+            vec![attachment, depth_attachment.unwrap()]
+        } else {
+            vec![attachment]
+        };
+        let descriptions = vec![subpass_description];
         Ok(unsafe {
             Self {
                 render_pass: device
                     .create_render_pass(
                         &render_pass_create_info(
                             &attachments,
-                            &[subpass_description],
+                            &descriptions,
                             &[subpass_dependency],
                         ),
                         None,
@@ -84,7 +106,7 @@ fn render_pass_create_info<'a>(
 ) -> RenderPassCreateInfo<'a> {
     RenderPassCreateInfo::default()
         .attachments(attachments)
-        .subpasses(description) 
+        .subpasses(description)
         .dependencies(dependencies)
 }
 
@@ -111,25 +133,37 @@ fn create_attachment(
     image_format: Format,
     initial_layout: ImageLayout,
     final_layout: ImageLayout,
+    store_op: AttachmentStoreOp,
     load_op: AttachmentLoadOp,
 ) -> AttachmentDescription {
     AttachmentDescription::default()
         .format(image_format)
         .samples(SampleCountFlags::TYPE_1)
         .load_op(load_op)
-        .store_op(AttachmentStoreOp::STORE)
+        .store_op(store_op)
         .stencil_load_op(AttachmentLoadOp::CLEAR)
         .stencil_store_op(AttachmentStoreOp::STORE)
         .initial_layout(initial_layout)
         .final_layout(final_layout)
 }
 
-fn create_attachment_ref() -> AttachmentReference {
-    AttachmentReference::default().layout(ImageLayout::COLOR_ATTACHMENT_OPTIMAL)}
+fn create_attachment_ref(layout: ImageLayout, attachment_index: u32) -> AttachmentReference {
+    AttachmentReference::default()
+        .layout(layout)
+        .attachment(attachment_index)
+}
 
-fn create_subpass_description(color_attachments: &[AttachmentReference]) -> SubpassDescription<'_> {
-    SubpassDescription::default()
-        .color_attachments(color_attachments)
+fn create_subpass_description<'a>(
+    attachments: &'a [AttachmentReference],
+    depth_attachment: Option<&'a AttachmentReference>,
+) -> SubpassDescription<'a> {
+    let mut subpass = SubpassDescription::default()
+        .color_attachments(attachments)
         .pipeline_bind_point(PipelineBindPoint::GRAPHICS)
-        .color_attachments(color_attachments)
+        .color_attachments(attachments);
+
+    if let Some(att) = depth_attachment {
+        subpass = subpass.depth_stencil_attachment(&att);
+    }
+    subpass
 }
