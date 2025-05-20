@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: install deps
+      run: cargo add glib-sys@=0.18.1
     - name: Build
       run: cargo build --verbose
     - name: Run tests
