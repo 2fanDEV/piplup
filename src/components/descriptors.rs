@@ -35,13 +35,7 @@ pub struct DescriptorWriter<'a> {
     writes: Vec<WriteDescriptorSet<'a>>,
 }
 
-impl Default for DescriptorWriter<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> DescriptorWriter<'a> {
+impl <'a> DescriptorWriter<'a> {
     pub fn new() -> Self {
         Self {
             image_infos: vec![],
@@ -121,7 +115,6 @@ pub struct DescriptorAllocator {
     full_pools: Vec<DescriptorPool>,
     ready_pools: Vec<DescriptorPool>,
     sets_per_pool: u32,
-    writer: DescriptorWriter<'static>,
 }
 
 #[derive(Copy, Clone)]
@@ -160,7 +153,6 @@ impl DescriptorAllocator {
             full_pools,
             ready_pools,
             sets_per_pool: (max_sets as f32 * 1.5) as u32,
-            writer: DescriptorWriter::new(),
         }
     }
 
@@ -206,6 +198,7 @@ impl DescriptorAllocator {
         descriptor_type: DescriptorType,
         sampler: Option<VkSampler>,
     ) -> Result<DescriptorSetDetails, Error> {
+        let mut writer = DescriptorWriter::new();
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
         descriptor_layout_builder.add_binding(0, descriptor_type);
         let layout = descriptor_layout_builder.build(
@@ -215,7 +208,7 @@ impl DescriptorAllocator {
         );
 
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
-        self.writer.clone().write_image(
+        writer.write_image(
             0,
             *image_view,
             sampler,
@@ -223,7 +216,8 @@ impl DescriptorAllocator {
             descriptor_type,
         );
 
-        self.writer.update_set(self.device.clone(), descriptor_set);
+        writer.update_set(self.device.clone(), descriptor_set);
+      
 
         Ok(DescriptorSetDetails {
             descriptor_set,
