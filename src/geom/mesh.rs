@@ -4,7 +4,6 @@ use crate::components::allocation_types::VkBuffer;
 use anyhow::Error;
 use ash::vk::{BufferUsageFlags, MemoryPropertyFlags, Rect2D, Viewport};
 use egui::TextureId;
-use log::debug;
 use vk_mem::MemoryUsage;
 
 use super::VertexAttributes;

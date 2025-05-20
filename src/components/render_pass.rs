@@ -163,7 +163,7 @@ fn create_subpass_description<'a>(
         .color_attachments(attachments);
 
     if let Some(att) = depth_attachment {
-        subpass = subpass.depth_stencil_attachment(&att);
+        subpass = subpass.depth_stencil_attachment(att);
     }
     subpass
 }

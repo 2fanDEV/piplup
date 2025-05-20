@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    iter::Sum,
     ops::{Add, Deref},
     sync::Arc,
 };
@@ -10,11 +9,10 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
+        AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
     },
 };
-use log::debug;
-use nalgebra::{Matrix4, Vector3, Vector4};
+use nalgebra::Matrix4;
 use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
 
@@ -26,7 +24,7 @@ use crate::{
         command_buffers::VkCommandPool,
         device::{self, VkDevice},
         frame_data::FrameData,
-        image_util::{self, copy_image_to_image, image_transition},
+        image_util::{copy_image_to_image, image_transition},
         instance::{self, VkInstance},
         memory_allocator::MemoryAllocator,
         pipeline::{
@@ -34,14 +32,13 @@ use crate::{
             create_rasterizer_state, ShaderInformation, VkPipeline,
         },
         queue::{QueueType, VkQueue},
-        render_pass::{self, VkRenderPass},
+        render_pass::{VkRenderPass},
         surface,
         swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::EguiRenderer,
     geom::{
         assets::{self, MeshAsset},
-        mesh::{Mesh, MeshBuffers},
         push_constants::PushConstant,
         triangle_push_constant,
         vertex_3d::Vertex3D,
@@ -489,7 +486,7 @@ impl Renderer {
         stage_masks: &[PipelineStageFlags],
     ) {
         let submit_info = vec![SubmitInfo::default()
-            .command_buffers(&submit_cmd_buffers)
+            .command_buffers(submit_cmd_buffers)
             .wait_dst_stage_mask(stage_masks)
             .signal_semaphores(&frame_data.render_semaphore)
             .wait_semaphores(&frame_data.swapchain_semaphore)];

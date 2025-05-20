@@ -7,7 +7,7 @@ use ash::vk::{
 };
 use egui::{Color32, ImageData};
 use vk_mem::{
-    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateFlags, AllocatorCreateInfo,
+    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
     MemoryUsage,
 };
 

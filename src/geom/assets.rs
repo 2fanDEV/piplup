@@ -1,13 +1,12 @@
-use std::{fmt::Display, fs::File, io::BufReader, path::Path, primitive, sync::Arc, usize};
+use std::{fmt::Display, path::Path, sync::Arc, usize};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{Rect2D, Viewport};
-use log::debug;
 use nalgebra::{Vector3, Vector4};
 
 use crate::components::{
     command_buffers::VkCommandPool,
-    memory_allocator::{self, MemoryAllocator},
+    memory_allocator::{MemoryAllocator},
     queue::VkQueue,
 };
 
@@ -161,8 +160,8 @@ impl<T: VertexAttributes> MeshAsset<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::MeshAsset;
-    use crate::geom::vertex_3d::Vertex3D;
+    
+    
 
     #[test]
     fn load_gltf_meshes() {

@@ -13,10 +13,9 @@ use ash::vk::{
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
 use ash::vk::{
-    ColorComponentFlags, CompareOp, PipelineDepthStencilStateCreateFlags,
-    PipelineDepthStencilStateCreateInfo, StencilOpState,
+    ColorComponentFlags, CompareOp,
+    PipelineDepthStencilStateCreateInfo,
 };
-use log::debug;
 
 use super::{device::VkDevice, render_pass::VkRenderPass, util::load_shader_module};
 

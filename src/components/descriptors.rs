@@ -1,18 +1,18 @@
 use std::{io::Error, ops::Deref, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use ash::{
     vk::{
-        DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
-        DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo,
-        DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags,
-        DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ImageView, ShaderStageFlags,
-        WriteDescriptorSet,
+        DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorPoolCreateFlags,
+        DescriptorPoolCreateInfo, DescriptorPoolResetFlags, DescriptorPoolSize, DescriptorSet,
+        DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding,
+        DescriptorSetLayoutCreateFlags, DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout,
+        ImageView, ShaderStageFlags, WriteDescriptorSet,
     },
     Device,
 };
 
-use super::{device::VkDevice, sampler::VkSampler};
+use super::{allocation_types::VkBuffer, device::VkDevice, sampler::VkSampler};
 
 #[derive(Debug)]
 pub struct DescriptorSetDetails {
@@ -28,12 +28,100 @@ impl Deref for DescriptorSetDetails {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct DescriptorWriter<'a> {
+    image_infos: Vec<DescriptorImageInfo>,
+    buffer_infos: Vec<DescriptorBufferInfo>,
+    writes: Vec<WriteDescriptorSet<'a>>,
+}
+
+impl Default for DescriptorWriter<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> DescriptorWriter<'a> {
+    pub fn new() -> Self {
+        Self {
+            image_infos: vec![],
+            buffer_infos: vec![],
+            writes: vec![],
+        }
+    }
+
+    pub fn write_image(
+        &'a mut self,
+        binding: u32,
+        image: ImageView,
+        sampler: Option<VkSampler>,
+        layout: ImageLayout,
+        d_type: DescriptorType,
+    ) {
+        let mut descriptor_image_info = DescriptorImageInfo::default()
+            .image_view(image)
+            .image_layout(layout);
+        descriptor_image_info = match sampler {
+            Some(sampler) => descriptor_image_info.sampler(*sampler),
+            None => descriptor_image_info,
+        };
+        self.image_infos.push(descriptor_image_info);
+
+        let image_info_slice = std::slice::from_ref(self.image_infos.last().unwrap());
+
+        let write: WriteDescriptorSet = WriteDescriptorSet::default()
+            .dst_binding(binding)
+            .dst_set(DescriptorSet::null())
+            .image_info(image_info_slice)
+            .descriptor_type(d_type);
+
+        self.writes.push(write);
+    }
+
+    pub fn write_buffer(
+        &'a mut self,
+        binding: u32,
+        buffer: VkBuffer,
+        size: u64,
+        offset: u64,
+        d_type: DescriptorType,
+    ) {
+        let descriptor_buffer_info = DescriptorBufferInfo::default()
+            .buffer(*buffer)
+            .offset(offset)
+            .range(size);
+        self.buffer_infos.push(descriptor_buffer_info);
+
+        let buffer_info_slice = std::slice::from_ref(self.buffer_infos.last().unwrap());
+
+        let write = WriteDescriptorSet::default()
+            .dst_set(DescriptorSet::null())
+            .dst_binding(binding)
+            .descriptor_type(d_type)
+            .buffer_info(buffer_info_slice);
+
+        self.writes.push(write)
+    }
+
+    pub fn update_set(&mut self, device: Arc<VkDevice>, set: DescriptorSet) {
+        self.writes = self.writes.iter().map(|write| write.dst_set(set)).collect();
+        unsafe { device.update_descriptor_sets(&self.writes, &[]) };
+    }
+
+    pub fn clear(&mut self) {
+        self.image_infos.clear();
+        self.buffer_infos.clear();
+        self.writes.clear();
+    }
+}
+
 pub struct DescriptorAllocator {
     device: Arc<VkDevice>,
     ratios: Vec<PoolSizeRatio>,
     full_pools: Vec<DescriptorPool>,
     ready_pools: Vec<DescriptorPool>,
     sets_per_pool: u32,
+    writer: DescriptorWriter<'static>,
 }
 
 #[derive(Copy, Clone)]
@@ -72,6 +160,7 @@ impl DescriptorAllocator {
             full_pools,
             ready_pools,
             sets_per_pool: (max_sets as f32 * 1.5) as u32,
+            writer: DescriptorWriter::new(),
         }
     }
 
@@ -110,7 +199,7 @@ impl DescriptorAllocator {
         unsafe { Ok(device.create_descriptor_pool(&create_info, None).unwrap()) }
     }
 
-    pub fn write_descriptors(
+    pub fn write_image_descriptors(
         &mut self,
         image_view: &ImageView,
         shader_stage: ShaderStageFlags,
@@ -126,26 +215,15 @@ impl DescriptorAllocator {
         );
 
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
-        let mut descriptor_image_infos = vec![];
-        let mut descriptor_info = DescriptorImageInfo::default()
-            .image_layout(ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(*image_view);
-        if sampler.is_some() {
-            descriptor_info = descriptor_info.sampler(*sampler.unwrap());
-        }
-        descriptor_image_infos.push(descriptor_info);
+        self.writer.clone().write_image(
+            0,
+            *image_view,
+            sampler,
+            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            descriptor_type,
+        );
 
-        let write_descriptor_set = WriteDescriptorSet::default()
-            .dst_binding(0)
-            .descriptor_count(1)
-            .dst_set(descriptor_set)
-            .descriptor_type(descriptor_type)
-            .image_info(&descriptor_image_infos);
-
-        unsafe {
-            self.device
-                .update_descriptor_sets(&[write_descriptor_set], &[])
-        };
+        self.writer.update_set(self.device.clone(), descriptor_set);
 
         Ok(DescriptorSetDetails {
             descriptor_set,

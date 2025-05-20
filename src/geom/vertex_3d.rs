@@ -3,7 +3,7 @@ use std::mem::offset_of;
 use ash::vk::{
     Format, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
 };
-use nalgebra::{Vector2, Vector3, Vector4};
+use nalgebra::{Vector3, Vector4};
 
 use super::VertexAttributes;
 

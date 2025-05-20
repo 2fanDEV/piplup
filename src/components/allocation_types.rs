@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{

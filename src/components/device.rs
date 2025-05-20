@@ -3,13 +3,12 @@ use std::{io::Error, ops::Deref, sync::Arc};
 use ash::{
     vk::{
         DeviceCreateInfo, DeviceQueueCreateInfo, PhysicalDevice, PhysicalDeviceVulkan12Features,
-        QueueFlags, EXT_BUFFER_DEVICE_ADDRESS_NAME, KHR_PORTABILITY_SUBSET_NAME,
-        KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_NAME, KHR_SWAPCHAIN_NAME,
+        QueueFlags, KHR_PORTABILITY_SUBSET_NAME, KHR_SWAPCHAIN_NAME,
     },
     Device, Instance,
 };
 use log::error;
-use winit::window::{self, Window};
+use winit::window::{Window};
 
 use super::{
     instance::VkInstance, surface::KHRSurface, swapchain_support_details::SwapchainSupportDetails,

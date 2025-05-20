@@ -1,4 +1,3 @@
-use core::slice;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
@@ -161,7 +160,7 @@ impl EguiRenderer {
                             };
 
                             Ok(egui_descriptor_allocator
-                                .write_descriptors(
+                                .write_image_descriptors(
                                     &allocated_image.image_details.image_view,
                                     ShaderStageFlags::FRAGMENT,
                                     DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -175,7 +174,7 @@ impl EguiRenderer {
         }
 
         let cmd = egui_cmd_pool.single_time_command()?;
-        let _ = texture_informations.iter().map(|(_, tex_data)| {
+        let _ = texture_informations.values().map(|tex_data| {
             image_transition(
                 egui_cmd_pool.device.clone(),
                 cmd,
