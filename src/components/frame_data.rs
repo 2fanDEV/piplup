@@ -6,21 +6,23 @@ use ash::vk::{
 };
 
 use super::{
-    command_buffers::VkCommandPool, deletion_queue::DeletionQueue, descriptors::{DescriptorAllocator, PoolSizeRatio}, device::VkDevice
+    command_buffers::VkCommandPool,
+    deletion_queue::DeletionQueue,
+    descriptors::{DescriptorAllocator, PoolSizeRatio},
+    device::VkDevice,
 };
 
-
-pub struct FrameData {
+pub struct FrameData<'a> {
     pub command_buffer: CommandBuffer,
     pub egui_command_buffer: CommandBuffer,
     pub render_semaphore: Vec<Semaphore>,
     pub swapchain_semaphore: Vec<Semaphore>,
     pub render_fence: Vec<Fence>,
     pub descriptor_allocator: DescriptorAllocator,
-    pub deletion_queue: DeletionQueue
+    pub deletion_queue: DeletionQueue<'a>,
 }
 
-impl FrameData {
+impl <'a> FrameData<'a> {
     pub fn new(device: Arc<VkDevice>, command_pool: &VkCommandPool) -> Self {
         unsafe {
             Self {
@@ -45,7 +47,7 @@ impl FrameData {
                         1.0,
                     )],
                 ),
-                deletion_queue: DeletionQueue::new()
+                deletion_queue: DeletionQueue::new(),
             }
         }
     }

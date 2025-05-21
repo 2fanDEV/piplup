@@ -45,6 +45,7 @@ pub enum EguiRenderError {
     NotManaged(String),
 }
 
+#[allow(warnings)]
 pub struct EguiRenderer {
     device: Arc<VkDevice>,
     font_sampler: VkSampler,

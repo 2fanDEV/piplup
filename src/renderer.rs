@@ -9,12 +9,13 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CommandBuffer,
-        CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags,
-        DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags,
-        ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags,
-        PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo,
-        SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
+        self, AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags,
+        CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags,
+        CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace,
+        ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint,
+        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
+        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
+        SubpassContents, Viewport,
     },
 };
 use nalgebra::Matrix4;
@@ -25,10 +26,22 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER}, command_buffers::VkCommandPool, deletion_queue::{DeletionQueue}, device::{self, VkDevice}, frame_data::FrameData, image_util::{copy_image_to_image, image_transition}, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{
+        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER},
+        command_buffers::VkCommandPool,
+        deletion_queue::DeletionQueue,
+        device::{self, VkDevice},
+        frame_data::FrameData,
+        image_util::{copy_image_to_image, image_transition},
+        instance::{self, VkInstance},
+        memory_allocator::MemoryAllocator,
+        pipeline::{
             create_color_blending_attachment_state, create_multisampling_state,
             create_rasterizer_state, ShaderInformation, VkPipeline,
-        }, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
+        },
+        queue::{QueueType, VkQueue},
+        render_pass::VkRenderPass,
+        surface,
+        swapchain::{ImageDetails, KHRSwapchain},
     },
     egui::EguiRenderer,
     geom::{
@@ -41,7 +54,7 @@ use crate::{
 };
 
 #[allow(unused)]
-pub struct Renderer {
+pub struct Renderer<'a> {
     instance: Arc<VkInstance>,
     debug_instance: debug_utils::Instance,
     debugger: DebugUtilsMessengerEXT,
@@ -59,12 +72,12 @@ pub struct Renderer {
     scissors: Vec<Rect2D>,
     swapchain_image_details: Vec<ImageDetails>,
     framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
-    frame_data: Vec<FrameData>,
+    frame_data: Vec<FrameData<'a>>,
     frame_idx: usize,
     render_area: Rect2D,
     extent: Extent2D,
     command_pool: VkCommandPool,
-    main_deletion_queue: DeletionQueue,
+    main_deletion_queue: DeletionQueue<'a>,
     pub egui_renderer: EguiRenderer,
 }
 
@@ -91,8 +104,8 @@ impl ImageIndex {
     }
 }
 
-impl Renderer {
-    pub fn init(window: &Window) -> Result<Renderer, Error> {
+impl<'a> Renderer<'a> {
+    pub fn init(window: &'a Window) -> Result<Renderer<'a>, Error> {
         let vk_instance = Arc::new(instance::VkInstance::new(window)?);
         let (debug_instance, debugger) = instance::VkInstance::create_debugger(vk_instance.clone());
         let surface = Arc::new(surface::KHRSurface::new(vk_instance.clone(), window)?);
@@ -118,7 +131,7 @@ impl Renderer {
             window,
             [graphics_queue.clone(), presentation_queue.clone()],
         )?);
-        let main_deletion_queue= DeletionQueue::new();
+        let main_deletion_queue = DeletionQueue::new();
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
         let mut alloc_info =
@@ -132,6 +145,11 @@ impl Renderer {
             ImageUsageFlags::STORAGE | ImageUsageFlags::COLOR_ATTACHMENT,
             ImageAspectFlags::COLOR,
         )?;
+        main_deletion_queue.enqueue(|| unsafe {
+            vk_device
+                .clone()
+                .destroy_image_view(draw_image.clone().image_details.image_view, None)
+        });
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
         let depth_image = memory_allocator.create_image(
             swapchain.clone(),
@@ -168,7 +186,6 @@ impl Renderer {
         let command_pool = VkCommandPool::new(graphics_queue.clone());
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
-            
         }
 
         let render_area = Rect2D::default()
@@ -359,6 +376,7 @@ impl Renderer {
                 &frame_data.render_semaphore,
                 &image_indices,
             );
+            self.frame_data[self.frame_idx].deletion_queue.flush();
         }
         Ok(())
     }
@@ -490,11 +508,11 @@ impl Renderer {
     fn submit_queue(
         &self,
         queue: Queue,
-        frame_idx: usize,
+        frame_idx: usize, // Added frame_idx
         submit_cmd_buffers: &[CommandBuffer],
         stage_masks: &[PipelineStageFlags],
     ) {
-        let frame_data = &self.frame_data[frame_idx];
+        let frame_data = &self.frame_data[frame_idx]; // Access frame_data using index
         let submit_info = vec![SubmitInfo::default()
             .command_buffers(submit_cmd_buffers)
             .wait_dst_stage_mask(stage_masks)

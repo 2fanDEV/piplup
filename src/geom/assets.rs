@@ -61,13 +61,13 @@ impl<T: VertexAttributes> MeshAsset<T> {
             surfaces.clear();
             let primitives = mesh.primitives();
             for primitive in primitives {
-                let reader = primitive.reader(|buffer| blob.as_deref());
+                let reader = primitive.reader(|_buffer| blob.as_deref());
                 let surface = GeoSurface {
                     start_index: indices.len() as u32,
                     count: primitive.indices().unwrap().count(),
                 };
                 surfaces.push(surface);
-                let initial_vtx = vertices.len();
+                //let initial_vtx = vertices.len();
                 let positions = reader
                     .read_positions()
                     .ok_or(anyhow!("There are no positions in this mesh"))?
@@ -90,7 +90,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                 let colors = match reader.read_colors(0) {
                     Some(colors) => colors.into_rgba_f32().collect::<Vec<_>>(),
                     None => normals
-                        .iter()
+                       .iter()
                         .map(|normal| [normal[0], normal[1], normal[2], 1.0])
                         .collect::<Vec<_>>(),
                 };

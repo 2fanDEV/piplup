@@ -1,24 +1,26 @@
 use std::collections::VecDeque;
 
-pub struct DeletionQueue {
-    queue: VecDeque<Box<dyn FnOnce()>>, 
+pub struct DeletionQueue<'a> {
+    queue: VecDeque<Box<dyn FnOnce() + 'a>>,
 }
 
-
-impl Default for DeletionQueue {
+impl<'a> Default for DeletionQueue<'a> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DeletionQueue {
+impl<'a> DeletionQueue<'a> {
     pub fn new() -> Self {
         Self {
-            queue: VecDeque::new()
+            queue: VecDeque::new(),
         }
     }
-   
-    pub fn enqueue<T>(&mut self, func: T) where T: FnOnce() + 'static {
+
+    pub fn enqueue<T>(mut self, func: T)
+    where
+        T: FnOnce() + 'a,
+    {
         self.queue.push_back(Box::new(func));
     }
 
@@ -29,5 +31,3 @@ impl DeletionQueue {
         self.queue.clear();
     }
 }
- 
-
