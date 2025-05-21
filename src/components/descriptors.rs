@@ -50,6 +50,12 @@ pub struct DescriptorWriter {
     pending_buffer_writes: Vec<PendingBufferWrite>,
 }
 
+impl Default for DescriptorWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DescriptorWriter {
     pub fn new() -> Self {
         Self {

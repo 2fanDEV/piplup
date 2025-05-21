@@ -25,7 +25,7 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER}, command_buffers::VkCommandPool, deletion_queue::{self, DeletionQueue}, device::{self, VkDevice}, frame_data::FrameData, image_util::{copy_image_to_image, image_transition}, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{
+        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER}, command_buffers::VkCommandPool, deletion_queue::{DeletionQueue}, device::{self, VkDevice}, frame_data::FrameData, image_util::{copy_image_to_image, image_transition}, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{
             create_color_blending_attachment_state, create_multisampling_state,
             create_rasterizer_state, ShaderInformation, VkPipeline,
         }, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
