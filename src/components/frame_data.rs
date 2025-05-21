@@ -1,35 +1,59 @@
 use std::sync::Arc;
 
 use ash::vk::{
-    CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, Fence, FenceCreateFlags, FenceCreateInfo, Semaphore, SemaphoreCreateFlags, SemaphoreCreateInfo
+    CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, DescriptorType,
+    Fence, FenceCreateFlags, FenceCreateInfo, Semaphore, SemaphoreCreateFlags, SemaphoreCreateInfo,
 };
 
-use super::{command_buffers::VkCommandPool, device::VkDevice};
+use super::{
+    command_buffers::VkCommandPool, deletion_queue::DeletionQueue, descriptors::{DescriptorAllocator, PoolSizeRatio}, device::VkDevice
+};
 
-#[derive(Clone)]
+
 pub struct FrameData {
     pub command_buffer: CommandBuffer,
     pub egui_command_buffer: CommandBuffer,
     pub render_semaphore: Vec<Semaphore>,
     pub swapchain_semaphore: Vec<Semaphore>,
     pub render_fence: Vec<Fence>,
+    pub descriptor_allocator: DescriptorAllocator,
+    pub deletion_queue: DeletionQueue
 }
 
 impl FrameData {
     pub fn new(device: Arc<VkDevice>, command_pool: &VkCommandPool) -> Self {
         unsafe {
             Self {
-                command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(**command_pool)).unwrap()[0],
-                egui_command_buffer: device.allocate_command_buffers(&allocate_command_buffer_info(**command_pool)).unwrap()[0],
-                render_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
-                swapchain_semaphore: vec![device.create_semaphore(&create_semaphore_info(), None).unwrap()],
+                command_buffer: device
+                    .allocate_command_buffers(&allocate_command_buffer_info(**command_pool))
+                    .unwrap()[0],
+                egui_command_buffer: device
+                    .allocate_command_buffers(&allocate_command_buffer_info(**command_pool))
+                    .unwrap()[0],
+                render_semaphore: vec![device
+                    .create_semaphore(&create_semaphore_info(), None)
+                    .unwrap()],
+                swapchain_semaphore: vec![device
+                    .create_semaphore(&create_semaphore_info(), None)
+                    .unwrap()],
                 render_fence: vec![device.create_fence(&create_fence_info(), None).unwrap()],
+                descriptor_allocator: DescriptorAllocator::new(
+                    device.clone(),
+                    16,
+                    vec![PoolSizeRatio::new(
+                        DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        1.0,
+                    )],
+                ),
+                deletion_queue: DeletionQueue::new()
             }
         }
     }
 }
 
-pub fn allocate_command_buffer_info(command_pool: CommandPool) -> CommandBufferAllocateInfo<'static> {
+pub fn allocate_command_buffer_info(
+    command_pool: CommandPool,
+) -> CommandBufferAllocateInfo<'static> {
     CommandBufferAllocateInfo::default()
         .level(CommandBufferLevel::PRIMARY)
         .command_buffer_count(1)

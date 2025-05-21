@@ -9,7 +9,12 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport
+        AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CommandBuffer,
+        CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, CullModeFlags,
+        DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags,
+        ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint, PipelineStageFlags,
+        PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo,
+        SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
     },
 };
 use nalgebra::Matrix4;
@@ -20,21 +25,10 @@ const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER},
-        command_buffers::VkCommandPool,
-        device::{self, VkDevice},
-        frame_data::FrameData,
-        image_util::{copy_image_to_image, image_transition},
-        instance::{self, VkInstance},
-        memory_allocator::MemoryAllocator,
-        pipeline::{
+        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER}, command_buffers::VkCommandPool, deletion_queue::{self, DeletionQueue}, device::{self, VkDevice}, frame_data::FrameData, image_util::{copy_image_to_image, image_transition}, instance::{self, VkInstance}, memory_allocator::MemoryAllocator, pipeline::{
             create_color_blending_attachment_state, create_multisampling_state,
             create_rasterizer_state, ShaderInformation, VkPipeline,
-        },
-        queue::{QueueType, VkQueue},
-        render_pass::{VkRenderPass},
-        surface,
-        swapchain::{ImageDetails, KHRSwapchain},
+        }, queue::{QueueType, VkQueue}, render_pass::VkRenderPass, surface, swapchain::{ImageDetails, KHRSwapchain}
     },
     egui::EguiRenderer,
     geom::{
@@ -70,6 +64,7 @@ pub struct Renderer {
     render_area: Rect2D,
     extent: Extent2D,
     command_pool: VkCommandPool,
+    main_deletion_queue: DeletionQueue,
     pub egui_renderer: EguiRenderer,
 }
 
@@ -123,6 +118,7 @@ impl Renderer {
             window,
             [graphics_queue.clone(), presentation_queue.clone()],
         )?);
+        let main_deletion_queue= DeletionQueue::new();
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
         let mut alloc_info =
@@ -134,7 +130,7 @@ impl Renderer {
             Format::R16G16B16A16_SFLOAT,
             None,
             ImageUsageFlags::STORAGE | ImageUsageFlags::COLOR_ATTACHMENT,
-            ImageAspectFlags::COLOR
+            ImageAspectFlags::COLOR,
         )?;
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
         let depth_image = memory_allocator.create_image(
@@ -142,16 +138,16 @@ impl Renderer {
             Format::D32_SFLOAT,
             None,
             ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-            ImageAspectFlags::DEPTH
+            ImageAspectFlags::DEPTH,
         )?;
-         let render_pass = Arc::new(VkRenderPass::new(
+        let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
             ImageLayout::UNDEFINED,
             ImageLayout::TRANSFER_SRC_OPTIMAL,
             AttachmentLoadOp::CLEAR,
-            true
-        )?);      
+            true,
+        )?);
         let draw_framebuffers = VkFrameBuffer::create_framebuffer(
             IDENTIFIER::DRAW,
             vk_device.clone(),
@@ -159,7 +155,7 @@ impl Renderer {
             extent,
             &[draw_image.image_details, depth_image.image_details],
         );
-       /* let depth_framebuffers = VkFrameBuffer::create_framebuffers(
+        /* let depth_framebuffers = VkFrameBuffer::create_framebuffers(
             IDENTIFIER::DEPTH,
             vk_device.clone(),
             render_pass.clone(),
@@ -172,6 +168,7 @@ impl Renderer {
         let command_pool = VkCommandPool::new(graphics_queue.clone());
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
+            
         }
 
         let render_area = Rect2D::default()
@@ -272,7 +269,7 @@ impl Renderer {
             graphics_queue.clone(),
             extent,
             swapchain.details.clone().choose_swapchain_format().format,
-            swapchain_image_details.clone()
+            swapchain_image_details.clone(),
         )?;
         Ok(Self {
             instance: vk_instance,
@@ -282,6 +279,7 @@ impl Renderer {
             graphics_queue,
             presentation_queue,
             swapchain,
+            main_deletion_queue,
             //    compute_pipelines,
             //   compute_descriptor_set_details,
             //  compute_descriptor_allocator,
@@ -305,14 +303,14 @@ impl Renderer {
     }
 
     pub fn display(&mut self, window: &Window) -> Result<()> {
-        let frame_data = self.frame_data[self.frame_idx].clone();
-        self.draw(&frame_data, window)?;
+        self.draw(self.frame_idx, window)?;
         self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
         Ok(())
     }
 
-    fn draw(&mut self, frame_data: &FrameData, window: &Window) -> Result<()> {
+    fn draw(&mut self, frame_idx: usize, window: &Window) -> Result<()> {
         unsafe {
+            let frame_data = &self.frame_data[frame_idx];
             self.device
                 .wait_for_fences(&frame_data.render_fence, true, u64::MAX)?;
             self.device.reset_fences(&frame_data.render_fence)?;
@@ -339,19 +337,19 @@ impl Renderer {
                 PipelineStageFlags::FRAGMENT_SHADER,
             ];
 
-            self.record_command_buffer(frame_data, &image_index, window)
+            self.record_command_buffer(frame_idx, &image_index, window)
                 .unwrap();
-           self.egui_renderer.draw(
+            self.egui_renderer.draw(
                 frame_data.egui_command_buffer,
                 &image_index,
                 window,
                 self.viewports.clone(),
-                self.render_area
+                self.render_area,
             )?;
 
             self.submit_queue(
                 **self.graphics_queue,
-                frame_data,
+                frame_idx,
                 &[frame_data.command_buffer, frame_data.egui_command_buffer],
                 &stage_masks,
             );
@@ -366,12 +364,13 @@ impl Renderer {
     }
 
     fn record_command_buffer(
-        &mut self,
-        frame_data: &FrameData,
+        &self,
+        frame_idx: usize,
         image_index: &ImageIndex,
         window: &Window,
     ) -> Result<()> {
         unsafe {
+            let frame_data = &self.frame_data[frame_idx];
             let cmd = frame_data.command_buffer;
             let current_image = self.swapchain_image_details[**image_index as usize];
             self.device.begin_command_buffer(
@@ -379,16 +378,19 @@ impl Renderer {
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
 
-            let clear_value = vec![ClearValue {
-                color: ash::vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
+            let clear_value = vec![
+                ClearValue {
+                    color: ash::vk::ClearColorValue {
+                        float32: [0.0, 0.0, 0.0, 0.0],
+                    },
                 },
-            }, ClearValue {
-                depth_stencil: ClearDepthStencilValue {
+                ClearValue {
+                    depth_stencil: ClearDepthStencilValue {
                         depth: 1.0,
-                        stencil: 0
-                }
-            }];
+                        stencil: 0,
+                    },
+                },
+            ];
             self.device.cmd_begin_render_pass(
                 cmd,
                 &RenderPassBeginInfo::default()
@@ -426,7 +428,7 @@ impl Renderer {
                 self.graphics_queue.queue_family_index,
                 current_image.image,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
-                ImageLayout::GENERAL
+                ImageLayout::GENERAL,
             );
 
             self.device.end_command_buffer(frame_data.command_buffer)?;
@@ -447,7 +449,8 @@ impl Renderer {
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
             self.device.cmd_set_viewport(cmd, 0, &self.viewports);
 
-            let push_constants_data = triangle_push_constant(buffer.mesh_buffers.vertex_buffer.address, self.extent);
+            let push_constants_data =
+                triangle_push_constant(buffer.mesh_buffers.vertex_buffer.address, self.extent);
             self.device.cmd_push_constants(
                 cmd,
                 self.gltf_pipeline.pipeline_layout,
@@ -465,8 +468,14 @@ impl Renderer {
                 IndexType::UINT32,
             );
 
-            self.device
-                .cmd_draw_indexed(cmd, buffer.surfaces[0].count as u32, 1, buffer.surfaces[0].start_index, 0, 0);
+            self.device.cmd_draw_indexed(
+                cmd,
+                buffer.surfaces[0].count as u32,
+                1,
+                buffer.surfaces[0].start_index,
+                0,
+                0,
+            );
         };
     }
 
@@ -481,10 +490,11 @@ impl Renderer {
     fn submit_queue(
         &self,
         queue: Queue,
-        frame_data: &FrameData,
+        frame_idx: usize,
         submit_cmd_buffers: &[CommandBuffer],
         stage_masks: &[PipelineStageFlags],
     ) {
+        let frame_data = &self.frame_data[frame_idx];
         let submit_info = vec![SubmitInfo::default()
             .command_buffers(submit_cmd_buffers)
             .wait_dst_stage_mask(stage_masks)

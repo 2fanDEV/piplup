@@ -28,24 +28,40 @@ impl Deref for DescriptorSetDetails {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct DescriptorWriter<'a> {
-    image_infos: Vec<DescriptorImageInfo>,
-    buffer_infos: Vec<DescriptorBufferInfo>,
-    writes: Vec<WriteDescriptorSet<'a>>,
+#[derive(Debug, Clone, Copy)]
+struct PendingImageWrite {
+    binding: u32,
+    image_info_idx: usize,
+    d_type: DescriptorType,
 }
 
-impl <'a> DescriptorWriter<'a> {
+#[derive(Debug, Clone, Copy)]
+struct PendingBufferWrite {
+    binding: u32,
+    buffer_info_idx: usize,
+    d_type: DescriptorType,
+}
+
+#[derive(Clone, Debug)]
+pub struct DescriptorWriter {
+    image_infos: Vec<DescriptorImageInfo>,
+    buffer_infos: Vec<DescriptorBufferInfo>,
+    pending_image_writes: Vec<PendingImageWrite>,
+    pending_buffer_writes: Vec<PendingBufferWrite>,
+}
+
+impl DescriptorWriter {
     pub fn new() -> Self {
         Self {
             image_infos: vec![],
             buffer_infos: vec![],
-            writes: vec![],
+            pending_image_writes: vec![],
+            pending_buffer_writes: vec![],
         }
     }
 
     pub fn write_image(
-        &'a mut self,
+        &mut self,
         binding: u32,
         image: ImageView,
         sampler: Option<VkSampler>,
@@ -61,19 +77,15 @@ impl <'a> DescriptorWriter<'a> {
         };
         self.image_infos.push(descriptor_image_info);
 
-        let image_info_slice = std::slice::from_ref(self.image_infos.last().unwrap());
-
-        let write: WriteDescriptorSet = WriteDescriptorSet::default()
-            .dst_binding(binding)
-            .dst_set(DescriptorSet::null())
-            .image_info(image_info_slice)
-            .descriptor_type(d_type);
-
-        self.writes.push(write);
+        self.pending_image_writes.push(PendingImageWrite {
+            binding,
+            image_info_idx: self.image_infos.len() - 1,
+            d_type,
+        })
     }
 
     pub fn write_buffer(
-        &'a mut self,
+        &mut self,
         binding: u32,
         buffer: VkBuffer,
         size: u64,
@@ -86,29 +98,48 @@ impl <'a> DescriptorWriter<'a> {
             .range(size);
         self.buffer_infos.push(descriptor_buffer_info);
 
-        let buffer_info_slice = std::slice::from_ref(self.buffer_infos.last().unwrap());
-
-        let write = WriteDescriptorSet::default()
-            .dst_set(DescriptorSet::null())
-            .dst_binding(binding)
-            .descriptor_type(d_type)
-            .buffer_info(buffer_info_slice);
-
-        self.writes.push(write)
+        self.pending_buffer_writes.push(PendingBufferWrite {
+            binding,
+            buffer_info_idx: self.buffer_infos.len() - 1,
+            d_type,
+        })
     }
 
     pub fn update_set(&mut self, device: Arc<VkDevice>, set: DescriptorSet) {
-        self.writes = self.writes.iter().map(|write| write.dst_set(set)).collect();
-        unsafe { device.update_descriptor_sets(&self.writes, &[]) };
+        let mut writes: Vec<WriteDescriptorSet> = vec![];
+        for image_write in &self.pending_image_writes {
+            let image_ref = &self.image_infos[image_write.image_info_idx];
+            writes.push(
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(image_write.binding)
+                    .descriptor_type(image_write.d_type)
+                    .image_info(std::slice::from_ref(image_ref)),
+            )
+        }
+
+        for buffer_write in &self.pending_buffer_writes {
+            let buffer_ref = &self.buffer_infos[buffer_write.buffer_info_idx];
+            writes.push(
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .dst_binding(buffer_write.binding)
+                    .descriptor_type(buffer_write.d_type)
+                    .buffer_info(std::slice::from_ref(buffer_ref)),
+            )
+        }
+        unsafe { device.update_descriptor_sets(&writes, &[]) };
     }
 
     pub fn clear(&mut self) {
         self.image_infos.clear();
         self.buffer_infos.clear();
-        self.writes.clear();
+        self.pending_buffer_writes.clear();
+        self.pending_image_writes.clear();
     }
 }
 
+#[derive(Clone)]
 pub struct DescriptorAllocator {
     device: Arc<VkDevice>,
     ratios: Vec<PoolSizeRatio>,
@@ -217,7 +248,6 @@ impl DescriptorAllocator {
         );
 
         writer.update_set(self.device.clone(), descriptor_set);
-      
 
         Ok(DescriptorSetDetails {
             descriptor_set,

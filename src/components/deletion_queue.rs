@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 pub struct DeletionQueue {
-    queue: VecDeque<Box<dyn Fn() + Send + Sync>>, 
+    queue: VecDeque<Box<dyn FnOnce()>>, 
 }
 
 
@@ -17,13 +17,17 @@ impl DeletionQueue {
             queue: VecDeque::new()
         }
     }
-
-    pub fn enqueue<T>(&mut self, func : T) 
-    where T: Fn() + 'static + Send + Sync
-    {
+   
+    pub fn enqueue<T>(&mut self, func: T) where T: FnOnce() + 'static {
         self.queue.push_back(Box::new(func));
     }
 
+    pub fn flush(&mut self) {
+        for i in self.queue.drain(..) {
+            i()
+        }
+        self.queue.clear();
+    }
 }
  
 
