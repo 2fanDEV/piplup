@@ -14,7 +14,6 @@ use super::{
 #[derive(Debug)]
 pub struct AllocatedImage {
     pub image_details: ImageDetails,
-    pub allocation: vk_mem::Allocation,
     pub extent: Extent3D,
     pub image_format: Format,
 }
@@ -22,14 +21,12 @@ pub struct AllocatedImage {
 impl AllocatedImage {
     pub fn new(
         image_details: ImageDetails,
-        allocation: Allocation,
         extent: Extent3D,
         image_format: Format,
     ) -> Self {
         Self {
             image_details,
             extent,
-            allocation,
             image_format,
         }
     }
@@ -108,7 +105,6 @@ impl VkFrameBuffer {
 #[derive(Debug)]
 pub struct VkBuffer {
     pub buffer: Buffer,
-    pub allocation: Allocation,
     pub address: u64
 }
 

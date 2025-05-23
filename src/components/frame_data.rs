@@ -10,20 +10,25 @@ use super::{
     deletion_queue::DeletionQueue,
     descriptors::{DescriptorAllocator, PoolSizeRatio},
     device::VkDevice,
+    memory_allocator::MemoryAllocator,
 };
 
-pub struct FrameData<'a> {
+pub struct FrameData {
     pub command_buffer: CommandBuffer,
     pub egui_command_buffer: CommandBuffer,
     pub render_semaphore: Vec<Semaphore>,
     pub swapchain_semaphore: Vec<Semaphore>,
     pub render_fence: Vec<Fence>,
     pub descriptor_allocator: DescriptorAllocator,
-    pub deletion_queue: DeletionQueue<'a>,
+    pub deletion_queue: DeletionQueue,
 }
 
-impl <'a> FrameData<'a> {
-    pub fn new(device: Arc<VkDevice>, command_pool: &VkCommandPool) -> Self {
+impl FrameData {
+    pub fn new(
+        device: Arc<VkDevice>,
+        memory_allocator: Arc<MemoryAllocator>,
+        command_pool: &VkCommandPool,
+    ) -> Self {
         unsafe {
             Self {
                 command_buffer: device
@@ -47,7 +52,7 @@ impl <'a> FrameData<'a> {
                         1.0,
                     )],
                 ),
-                deletion_queue: DeletionQueue::new(),
+                deletion_queue: DeletionQueue::new(device.clone(), memory_allocator.clone()),
             }
         }
     }

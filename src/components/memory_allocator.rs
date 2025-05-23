@@ -7,8 +7,7 @@ use ash::vk::{
 };
 use egui::{Color32, ImageData};
 use vk_mem::{
-    Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
-    MemoryUsage,
+    Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage
 };
 
 use super::{
@@ -42,7 +41,7 @@ impl MemoryAllocator {
     }
 
     #[allow(deprecated)]
-    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, initial_layout: Option<ImageLayout>, flags: ImageUsageFlags, aspect_flags: ImageAspectFlags) -> Result<AllocatedImage, Error> {
+    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, initial_layout: Option<ImageLayout>, flags: ImageUsageFlags, aspect_flags: ImageAspectFlags) -> Result<(AllocatedImage, Allocation), Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
             .height(swapchain.details.window_sizes.height)
@@ -81,11 +80,10 @@ impl MemoryAllocator {
                 image,
                 image_view
             },
-            allocation,
             extent,
             Format::R16G16B16A16_SFLOAT,
         );
-        Ok(allocated_image)
+        Ok((allocated_image, allocation))
   }
         
     //egui only 

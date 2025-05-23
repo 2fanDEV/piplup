@@ -28,7 +28,7 @@ use crate::{
     components::{
         allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER},
         command_buffers::VkCommandPool,
-        deletion_queue::DeletionQueue,
+        deletion_queue::{DeletionQueue, DestroyImageTask, FType},
         device::{self, VkDevice},
         frame_data::FrameData,
         image_util::{copy_image_to_image, image_transition},
@@ -54,7 +54,7 @@ use crate::{
 };
 
 #[allow(unused)]
-pub struct Renderer<'a> {
+pub struct Renderer {
     instance: Arc<VkInstance>,
     debug_instance: debug_utils::Instance,
     debugger: DebugUtilsMessengerEXT,
@@ -72,12 +72,12 @@ pub struct Renderer<'a> {
     scissors: Vec<Rect2D>,
     swapchain_image_details: Vec<ImageDetails>,
     framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
-    frame_data: Vec<FrameData<'a>>,
+    frame_data: Vec<FrameData>,
     frame_idx: usize,
     render_area: Rect2D,
     extent: Extent2D,
     command_pool: VkCommandPool,
-    main_deletion_queue: DeletionQueue<'a>,
+    main_deletion_queue: DeletionQueue,
     pub egui_renderer: EguiRenderer,
 }
 
@@ -104,8 +104,8 @@ impl ImageIndex {
     }
 }
 
-impl<'a> Renderer<'a> {
-    pub fn init(window: &'a Window) -> Result<Renderer<'a>, Error> {
+impl Renderer {
+    pub fn init(window: &Window) -> Result<Renderer, Error> {
         let vk_instance = Arc::new(instance::VkInstance::new(window)?);
         let (debug_instance, debugger) = instance::VkInstance::create_debugger(vk_instance.clone());
         let surface = Arc::new(surface::KHRSurface::new(vk_instance.clone(), window)?);
@@ -131,25 +131,30 @@ impl<'a> Renderer<'a> {
             window,
             [graphics_queue.clone(), presentation_queue.clone()],
         )?);
-        let main_deletion_queue = DeletionQueue::new();
 
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
         let mut alloc_info =
             AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device);
         alloc_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let memory_allocator = Arc::new(MemoryAllocator::new(vk_device.clone(), alloc_info));
-        let draw_image = memory_allocator.create_image(
+        #[allow(unused_mut)]
+        let mut main_deletion_queue =
+            DeletionQueue::new(vk_device.clone(), memory_allocator.clone());
+        let mut draw_image = memory_allocator.create_image(
             swapchain.clone(),
             Format::R16G16B16A16_SFLOAT,
             None,
             ImageUsageFlags::STORAGE | ImageUsageFlags::COLOR_ATTACHMENT,
             ImageAspectFlags::COLOR,
         )?;
-        main_deletion_queue.enqueue(|| unsafe {
-            vk_device
-                .clone()
-                .destroy_image_view(draw_image.clone().image_details.image_view, None)
-        });
+        let allocation = draw_image.allocation;
+        main_deletion_queue.enqueue(FType::TASK(Box::new(DestroyImageTask {
+                image: draw_image.image_details.image,
+                allocation
+        })));
+        let draw_image = draw_image.image_details;
+        //     main_deletion_queue.delete_image_view(draw_image.image_details.image_view);
+        //       main_deletion_queue.delete_image(draw_image.image_details.image, &mut draw_image.allocation);
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
         let depth_image = memory_allocator.create_image(
             swapchain.clone(),
@@ -185,7 +190,11 @@ impl<'a> Renderer<'a> {
         let mut frame_data: Vec<FrameData> = Vec::new();
         let command_pool = VkCommandPool::new(graphics_queue.clone());
         for _i in 0..MAX_FRAMES {
-            frame_data.push(FrameData::new(vk_device.clone(), &command_pool));
+            frame_data.push(FrameData::new(
+                vk_device.clone(),
+                memory_allocator.clone(),
+                &command_pool,
+            ));
         }
 
         let render_area = Rect2D::default()
