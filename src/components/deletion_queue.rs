@@ -1,16 +1,24 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, rc::Rc, sync::Arc};
 
-use ash::vk::Image;
+use ash::vk::{CommandPool, DescriptorPool, Image};
+use log::debug;
 use vk_mem::Allocation;
 
 use super::{
-    device::VkDevice,
-    memory_allocator::{MemoryAllocator},
+    descriptors::DescriptorAllocator, device::VkDevice, memory_allocator::MemoryAllocator,
 };
 
 pub struct DestroyImageTask {
     pub image: Image,
     pub allocation: Allocation,
+}
+
+pub struct DestroyDescriptorPools {
+    pub allocator: RefCell<DescriptorAllocator>,
+}
+
+pub struct DestroyCommandPoolTask {
+    pub pool: CommandPool,
 }
 
 pub trait CleanUpTask<'a> {
@@ -20,6 +28,22 @@ pub trait CleanUpTask<'a> {
 impl CleanUpTask<'static> for DestroyImageTask {
     fn execute(&mut self, _device: Arc<VkDevice>, malloc: Arc<MemoryAllocator>) {
         unsafe { malloc.destroy_image(self.image, &mut self.allocation) };
+        debug!("Image ({:?}) has been deleted", self.image);
+    }
+}
+
+impl CleanUpTask<'static> for DestroyCommandPoolTask {
+    fn execute(&mut self, device: Arc<VkDevice>, malloc: Arc<MemoryAllocator>) {
+        unsafe { device.destroy_command_pool(self.pool, None) }
+        debug!("Pool ({:?}) has been deleted", self.pool);
+    }
+}
+
+impl CleanUpTask<'static> for DestroyDescriptorPools {
+    fn execute(&mut self, device: Arc<VkDevice>, malloc: Arc<MemoryAllocator>) {
+        debug!("1");
+        self.allocator.borrow_mut().destroy_pools(device);
+        debug!("DescriptorPool have been deleted");
     }
 }
 

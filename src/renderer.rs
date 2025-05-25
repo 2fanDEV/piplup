@@ -18,6 +18,7 @@ use ash::{
         SubpassContents, Viewport,
     },
 };
+use log::debug;
 use nalgebra::Matrix4;
 use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo};
 use winit::window::Window;
@@ -148,13 +149,14 @@ impl Renderer {
             ImageAspectFlags::COLOR,
         )?;
         let allocation = draw_image.allocation;
-        let draw_image = draw_image.unit.get_copied::<AllocatedImage>();
+        let draw_image = draw_image.unit.get_cloned::<AllocatedImage>();
         main_deletion_queue.enqueue(FType::TASK(Box::new(DestroyImageTask {
             image: draw_image.image_details.image,
             allocation,
         })));
-        //     main_deletion_queue.delete_image_view(draw_image.image_details.image_view);
-        //       main_deletion_queue.delete_image(draw_image.image_details.image, &mut draw_image.allocation);
+        main_deletion_queue.enqueue(FType::DEVICE(Box::new(move |device| unsafe {
+            device.destroy_image_view(draw_image.image_details.image_view, None)
+        })));
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
         let depth_image = memory_allocator.create_image(
             swapchain.clone(),
@@ -168,6 +170,9 @@ impl Renderer {
         main_deletion_queue.enqueue(FType::TASK(Box::new(DestroyImageTask {
             image: depth_image.image_details.image,
             allocation: depth_allocation,
+        })));
+        main_deletion_queue.enqueue(FType::DEVICE(Box::new(move |device| unsafe {
+            device.destroy_image_view(depth_image.image_details.image_view, None)
         })));
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
@@ -199,7 +204,7 @@ impl Renderer {
             frame_data.push(FrameData::new(
                 vk_device.clone(),
                 memory_allocator.clone(),
-                &command_pool,
+                graphics_queue.clone(),
             ));
         }
 
@@ -336,7 +341,6 @@ impl Renderer {
 
     pub fn display(&mut self, window: &Window) -> Result<()> {
         self.draw(self.frame_idx, window)?;
-        self.frame_data[self.frame_idx].deletion_queue.flush();
         self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
         Ok(())
     }
@@ -392,7 +396,9 @@ impl Renderer {
                 &frame_data.render_semaphore,
                 &image_indices,
             );
+            debug!("self.frame_idx={:?}", self.frame_idx);
             self.frame_data[self.frame_idx].deletion_queue.flush();
+            self.frame_data[self.frame_idx].descriptor_allocator.borrow_mut().clear_pools();
         }
         Ok(())
     }

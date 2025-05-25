@@ -1,4 +1,8 @@
-use std::{io::Error, ops::Deref, sync::Arc};
+use std::{
+    io::Error,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use ash::{
@@ -149,8 +153,8 @@ impl DescriptorWriter {
 pub struct DescriptorAllocator {
     device: Arc<VkDevice>,
     ratios: Vec<PoolSizeRatio>,
-    full_pools: Vec<DescriptorPool>,
-    ready_pools: Vec<DescriptorPool>,
+    pub full_pools: Vec<DescriptorPool>,
+    pub ready_pools: Vec<DescriptorPool>,
     sets_per_pool: u32,
 }
 
@@ -278,6 +282,11 @@ impl DescriptorAllocator {
 
             self.full_pools.clear();
         }
+    }
+
+    pub fn clear_pools(&mut self) {
+        self.full_pools.clear();
+        self.ready_pools.clear();
     }
 
     pub fn destroy_pools(&mut self, device: Arc<VkDevice>) {

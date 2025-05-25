@@ -20,6 +20,7 @@ use crate::{
     components::{
         allocation_types::{AllocatedImage, VkBuffer, VkFrameBuffer, IDENTIFIER},
         command_buffers::{self, VkCommandPool},
+        deletion_queue::DeletionQueue,
         descriptors::{DescriptorAllocator, PoolSizeRatio},
         device::VkDevice,
         image_util::image_transition,
@@ -30,7 +31,8 @@ use crate::{
         },
         queue::VkQueue,
         render_pass::VkRenderPass,
-        sampler::VkSampler, swapchain::ImageDetails,
+        sampler::VkSampler,
+        swapchain::ImageDetails,
     },
     geom::{egui_push_constant, mesh::MeshBuffers, VertexAttributes},
     renderer::ImageIndex,
@@ -60,7 +62,8 @@ pub struct EguiRenderer {
     pipelines: Vec<VkPipeline>,
     render_pass: Arc<VkRenderPass>,
     extent: Extent2D,
-    framebuffers: Vec<VkFrameBuffer>
+    framebuffers: Vec<VkFrameBuffer>,
+    main_deletion_queue: DeletionQueue,
 }
 
 impl EguiRenderer {
@@ -71,8 +74,9 @@ impl EguiRenderer {
         graphics_queue: Arc<VkQueue>,
         extent: Extent2D,
         format: Format,
-        image_details: Vec<ImageDetails>
+        image_details: Vec<ImageDetails>,
     ) -> Result<Self> {
+        let main_deletion_queue = DeletionQueue::new(vk_device.clone(), memory_allocator.clone());
         let egui_cmd_pool: VkCommandPool =
             command_buffers::VkCommandPool::new(graphics_queue.clone());
         let egui_font_sampler = VkSampler::get_font_sampler(vk_device.clone());
@@ -86,7 +90,6 @@ impl EguiRenderer {
             )],
         );
 
-
         let mut texture_informations = HashMap::<TextureId, TextureInformationData>::new();
         let mut integration = EguiIntegration::new(window);
         let render_pass = Arc::new(VkRenderPass::new(
@@ -95,7 +98,7 @@ impl EguiRenderer {
             ImageLayout::GENERAL,
             ImageLayout::PRESENT_SRC_KHR,
             AttachmentLoadOp::LOAD,
-            false
+            false,
         )?);
 
         let framebuffers = VkFrameBuffer::create_framebuffers(
@@ -103,7 +106,7 @@ impl EguiRenderer {
             vk_device.clone(),
             render_pass.clone(),
             extent,
-            &image_details
+            &image_details,
         );
 
         #[allow(irrefutable_let_patterns)]
@@ -144,8 +147,10 @@ impl EguiRenderer {
                                     &[graphics_queue.clone()],
                                     &egui_cmd_pool,
                                     image_data,
-                                ).unwrap().unit.get_copied::<AllocatedImage>()
-                                
+                                )
+                                .unwrap()
+                                .unit
+                                .get_copied::<AllocatedImage>()
                         },
                         |allocated_image| {
                             let sampler = match delta.0 {
@@ -253,6 +258,7 @@ impl EguiRenderer {
             framebuffers,
             graphics_queue,
             mesh_buffers: vec![],
+            main_deletion_queue,
         })
     }
 
@@ -303,7 +309,9 @@ impl EguiRenderer {
                                 mem_flags,
                                 &self.command_pool,
                             )
-                            .unwrap().unit.get_copied::<VkBuffer>()
+                            .unwrap()
+                            .unit
+                            .get_copied::<VkBuffer>()
                     },
                     |elements, flags, usage, mem_flags| {
                         self.memory_allocator
@@ -315,7 +323,9 @@ impl EguiRenderer {
                                 mem_flags,
                                 &self.command_pool,
                             )
-                            .unwrap().unit.get_copied::<VkBuffer>()
+                            .unwrap()
+                            .unit
+                            .get_copied::<VkBuffer>()
                     },
                 )
                 .unwrap()
@@ -353,7 +363,7 @@ impl EguiRenderer {
                 command_buffer,
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
-            
+
             let clear_value = vec![ClearValue {
                 color: ash::vk::ClearColorValue {
                     float32: [0.0, 0.0, 0.0, 1.0],

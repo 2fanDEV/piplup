@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
 use ash::vk::{
     CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, DescriptorType,
@@ -7,10 +7,10 @@ use ash::vk::{
 
 use super::{
     command_buffers::VkCommandPool,
-    deletion_queue::DeletionQueue,
+    deletion_queue::{DeletionQueue, DestroyCommandPoolTask, DestroyDescriptorPools, FType},
     descriptors::{DescriptorAllocator, PoolSizeRatio},
     device::VkDevice,
-    memory_allocator::MemoryAllocator,
+    memory_allocator::MemoryAllocator, queue::VkQueue,
 };
 
 pub struct FrameData {
@@ -19,7 +19,7 @@ pub struct FrameData {
     pub render_semaphore: Vec<Semaphore>,
     pub swapchain_semaphore: Vec<Semaphore>,
     pub render_fence: Vec<Fence>,
-    pub descriptor_allocator: DescriptorAllocator,
+    pub descriptor_allocator: RefCell<DescriptorAllocator>,
     pub deletion_queue: DeletionQueue,
 }
 
@@ -27,15 +27,30 @@ impl FrameData {
     pub fn new(
         device: Arc<VkDevice>,
         memory_allocator: Arc<MemoryAllocator>,
-        command_pool: &VkCommandPool,
+        queue: Arc<VkQueue>
     ) -> Self {
+        let mut deletion_queue = DeletionQueue::new(device.clone(), memory_allocator.clone());
+        let command_pool = VkCommandPool::new(queue);
+  /*      deletion_queue.enqueue(FType::TASK(Box::new(DestroyCommandPoolTask {
+            pool: *command_pool }))); */
+        let descriptor_allocator = RefCell::new(DescriptorAllocator::new(
+                    device.clone(),
+                    16,
+                    vec![PoolSizeRatio::new(
+                        DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        1.0,
+                    )],
+                ));
+         deletion_queue.enqueue(FType::TASK(Box::new(DestroyDescriptorPools {
+             allocator: descriptor_allocator.clone()
+         })));
         unsafe {
             Self {
                 command_buffer: device
-                    .allocate_command_buffers(&allocate_command_buffer_info(**command_pool))
+                    .allocate_command_buffers(&allocate_command_buffer_info(*command_pool))
                     .unwrap()[0],
                 egui_command_buffer: device
-                    .allocate_command_buffers(&allocate_command_buffer_info(**command_pool))
+                    .allocate_command_buffers(&allocate_command_buffer_info(*command_pool))
                     .unwrap()[0],
                 render_semaphore: vec![device
                     .create_semaphore(&create_semaphore_info(), None)
@@ -44,15 +59,8 @@ impl FrameData {
                     .create_semaphore(&create_semaphore_info(), None)
                     .unwrap()],
                 render_fence: vec![device.create_fence(&create_fence_info(), None).unwrap()],
-                descriptor_allocator: DescriptorAllocator::new(
-                    device.clone(),
-                    16,
-                    vec![PoolSizeRatio::new(
-                        DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        1.0,
-                    )],
-                ),
-                deletion_queue: DeletionQueue::new(device.clone(), memory_allocator.clone()),
+                descriptor_allocator: descriptor_allocator.clone(),
+                deletion_queue
             }
         }
     }
