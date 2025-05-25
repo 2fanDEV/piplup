@@ -8,6 +8,8 @@ pub mod push_constants;
 pub mod vertex_2d;
 pub mod vertex_3d;
 pub mod assets;
+pub mod scene; 
+
 pub trait VertexAttributes {
     fn get_binding_description() -> Vec<VertexInputBindingDescription>;
 
