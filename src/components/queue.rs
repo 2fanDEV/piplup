@@ -38,6 +38,7 @@ impl VkQueue {
             &device.instance,
             surface,
         );
+        let i = 32;
         let queue_family_index = match queue_type {
             QueueType::GRAPHICS_QUEUE => queue_family_indices.graphics_q_idx.unwrap(),
             QueueType::PRESENT_QUEUE => queue_family_indices.presentation_q_idx.unwrap(),

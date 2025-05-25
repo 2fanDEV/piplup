@@ -5,9 +5,7 @@ use ash::vk::{Rect2D, Viewport};
 use nalgebra::{Vector3, Vector4};
 
 use crate::components::{
-    command_buffers::VkCommandPool,
-    memory_allocator::{MemoryAllocator},
-    queue::VkQueue,
+    allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue
 };
 
 use super::{
@@ -130,7 +128,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                                 memory_property_flags,
                                 &command_pool,
                             )
-                            .unwrap()
+                            .unwrap().unit.get_copied::<VkBuffer>()
                     },
                     |buffer_elements, buffer_usage, memory_usage, memory_property_flags| {
                         memory_allocator
@@ -143,6 +141,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                                 &command_pool,
                             )
                             .unwrap()
+                            .unit.get_copied::<VkBuffer>()
                     },
                 )?;
 

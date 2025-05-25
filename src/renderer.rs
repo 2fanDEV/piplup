@@ -33,7 +33,7 @@ use crate::{
         frame_data::FrameData,
         image_util::{copy_image_to_image, image_transition},
         instance::{self, VkInstance},
-        memory_allocator::MemoryAllocator,
+        memory_allocator::{AllocationUnit, MemoryAllocator},
         pipeline::{
             create_color_blending_attachment_state, create_multisampling_state,
             create_rasterizer_state, ShaderInformation, VkPipeline,
@@ -140,7 +140,7 @@ impl Renderer {
         #[allow(unused_mut)]
         let mut main_deletion_queue =
             DeletionQueue::new(vk_device.clone(), memory_allocator.clone());
-        let mut draw_image = memory_allocator.create_image(
+        let draw_image = memory_allocator.create_image(
             swapchain.clone(),
             Format::R16G16B16A16_SFLOAT,
             None,
@@ -148,11 +148,11 @@ impl Renderer {
             ImageAspectFlags::COLOR,
         )?;
         let allocation = draw_image.allocation;
+        let draw_image = draw_image.unit.get_copied::<AllocatedImage>();
         main_deletion_queue.enqueue(FType::TASK(Box::new(DestroyImageTask {
-                image: draw_image.image_details.image,
-                allocation
+            image: draw_image.image_details.image,
+            allocation,
         })));
-        let draw_image = draw_image.image_details;
         //     main_deletion_queue.delete_image_view(draw_image.image_details.image_view);
         //       main_deletion_queue.delete_image(draw_image.image_details.image, &mut draw_image.allocation);
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
@@ -163,6 +163,12 @@ impl Renderer {
             ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
             ImageAspectFlags::DEPTH,
         )?;
+        let depth_allocation = depth_image.allocation;
+        let depth_image = depth_image.unit.get_copied::<AllocatedImage>();
+        main_deletion_queue.enqueue(FType::TASK(Box::new(DestroyImageTask {
+            image: depth_image.image_details.image,
+            allocation: depth_allocation,
+        })));
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
@@ -330,6 +336,7 @@ impl Renderer {
 
     pub fn display(&mut self, window: &Window) -> Result<()> {
         self.draw(self.frame_idx, window)?;
+        self.frame_data[self.frame_idx].deletion_queue.flush();
         self.frame_idx = self.frame_idx.add(1_usize) % MAX_FRAMES;
         Ok(())
     }

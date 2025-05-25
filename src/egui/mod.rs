@@ -18,7 +18,7 @@ use winit::window::Window;
 
 use crate::{
     components::{
-        allocation_types::{VkFrameBuffer, IDENTIFIER},
+        allocation_types::{AllocatedImage, VkBuffer, VkFrameBuffer, IDENTIFIER},
         command_buffers::{self, VkCommandPool},
         descriptors::{DescriptorAllocator, PoolSizeRatio},
         device::VkDevice,
@@ -144,8 +144,8 @@ impl EguiRenderer {
                                     &[graphics_queue.clone()],
                                     &egui_cmd_pool,
                                     image_data,
-                                )
-                                .unwrap()
+                                ).unwrap().unit.get_copied::<AllocatedImage>()
+                                
                         },
                         |allocated_image| {
                             let sampler = match delta.0 {
@@ -303,7 +303,7 @@ impl EguiRenderer {
                                 mem_flags,
                                 &self.command_pool,
                             )
-                            .unwrap()
+                            .unwrap().unit.get_copied::<VkBuffer>()
                     },
                     |elements, flags, usage, mem_flags| {
                         self.memory_allocator
@@ -315,7 +315,7 @@ impl EguiRenderer {
                                 mem_flags,
                                 &self.command_pool,
                             )
-                            .unwrap()
+                            .unwrap().unit.get_copied::<VkBuffer>()
                     },
                 )
                 .unwrap()

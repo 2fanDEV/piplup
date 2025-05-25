@@ -4,14 +4,12 @@ use ash::vk::{
     BufferCopy, BufferImageCopy, DeviceSize, Extent2D, Extent3D, Format, Framebuffer, FramebufferCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageView, MemoryPropertyFlags, Offset3D
 };
 use ash::vk::Buffer;
-use vk_mem::Allocation;
-
 use super::{
     command_buffers::VkCommandPool, device::VkDevice, image_util::image_subresource_layers, queue::VkQueue, render_pass::VkRenderPass, swapchain::ImageDetails
 };
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AllocatedImage {
     pub image_details: ImageDetails,
     pub extent: Extent3D,
@@ -102,7 +100,7 @@ impl VkFrameBuffer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct VkBuffer {
     pub buffer: Buffer,
     pub address: u64
@@ -118,8 +116,8 @@ impl Deref for VkBuffer {
 
 impl VkBuffer {
     pub fn copy_buffer(
-        src: Buffer,
-        dst: Buffer,
+        src: VkBuffer,
+        dst: VkBuffer,
         size: DeviceSize,
         queue: Arc<VkQueue>,
         command_pool: &VkCommandPool,
@@ -129,7 +127,7 @@ impl VkBuffer {
         unsafe {
             command_pool
                 .device
-                .cmd_copy_buffer(command_buffer, src, dst, &buffer_copy)
+                .cmd_copy_buffer(command_buffer, *src, *dst, &buffer_copy)
         };
         command_pool.end_single_time_command(queue, command_buffer);
     }
@@ -160,9 +158,7 @@ impl VkBuffer {
                 &[buffer_image_copy],
             )
         };
-
         command_pool.end_single_time_command(queue, command_buffer);
-
         Ok(())
     }
 

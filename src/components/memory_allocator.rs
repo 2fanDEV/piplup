@@ -1,13 +1,16 @@
-use std::{fmt::Debug, io::Error, ops::Deref, sync::Arc};
+use std::{
+    any::{self, Any}, fmt::Debug, io::Error, mem::Discriminant, ops::Deref, sync::Arc
+};
 
+use anyhow::anyhow;
 use ash::vk::{
-    BufferCreateInfo, BufferDeviceAddressInfo,
-    BufferUsageFlags, Extent3D, Format, ImageAspectFlags, ImageLayout, ImageUsageFlags,
-    MemoryPropertyFlags, SharingMode,
+    BufferCreateInfo, BufferDeviceAddressInfo, BufferUsageFlags, Extent3D, Format,
+    ImageAspectFlags, ImageLayout, ImageUsageFlags, MemoryPropertyFlags, SharingMode,
 };
 use egui::{Color32, ImageData};
 use vk_mem::{
-    Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo, MemoryUsage
+    Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
+    MemoryUsage,
 };
 
 use super::{
@@ -18,6 +21,38 @@ use super::{
     queue::VkQueue,
     swapchain::{ImageDetails, KHRSwapchain},
 };
+
+#[derive(Debug, Clone, Copy)]
+pub enum AllocationUnitType {
+    Buffer(VkBuffer),
+    Image(AllocatedImage),
+}
+
+#[derive(Debug)]
+pub struct AllocationUnit {
+    pub unit: AllocationUnitType,
+    pub allocation: Allocation,
+}
+
+impl AllocationUnitType {
+    pub fn get_cloned<T: Any + Clone>(&self) -> T {
+        match self {
+            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any)
+                .downcast_ref::<T>().cloned(),
+            AllocationUnitType::Image(image) => (image as &dyn Any)
+                .downcast_ref::<T>().cloned(),
+        }.unwrap()
+    }
+    
+    pub fn get_copied<T: Any + Copy>(&self) -> T {
+        match self {
+            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any)
+                .downcast_ref::<T>().copied(),
+            AllocationUnitType::Image(image) => (image as &dyn Any)
+                .downcast_ref::<T>().copied(),
+        }.unwrap()
+    }
+}
 
 pub struct MemoryAllocator {
     allocator: vk_mem::Allocator,
@@ -35,13 +70,20 @@ impl Deref for MemoryAllocator {
 impl MemoryAllocator {
     pub fn new(device: Arc<VkDevice>, allocator_create_info: AllocatorCreateInfo) -> Self {
         Self {
+            device: device.clone(),
             allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() },
-            device,
         }
     }
 
     #[allow(deprecated)]
-    pub fn create_image(&self, swapchain: Arc<KHRSwapchain>, format: Format, initial_layout: Option<ImageLayout>, flags: ImageUsageFlags, aspect_flags: ImageAspectFlags) -> Result<(AllocatedImage, Allocation), Error> {
+    pub fn create_image(
+        &self,
+        swapchain: Arc<KHRSwapchain>,
+        format: Format,
+        initial_layout: Option<ImageLayout>,
+        flags: ImageUsageFlags,
+        aspect_flags: ImageAspectFlags,
+    ) -> Result<AllocationUnit, Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
             .height(swapchain.details.window_sizes.height)
@@ -54,7 +96,7 @@ impl MemoryAllocator {
                 | ImageUsageFlags::SAMPLED
                 | flags,
             extent,
-            initial_layout
+            initial_layout,
         );
 
         let mut allocation_create_info = AllocationCreateInfo::default();
@@ -67,8 +109,7 @@ impl MemoryAllocator {
                 .unwrap()
         };
 
-        let image_view_create_info =
-            image_view_create_info(image, format, aspect_flags);
+        let image_view_create_info = image_view_create_info(image, format, aspect_flags);
         let image_view = unsafe {
             swapchain
                 .device
@@ -76,23 +117,24 @@ impl MemoryAllocator {
                 .unwrap()
         };
         let allocated_image = AllocatedImage::new(
-            ImageDetails {
-                image,
-                image_view
-            },
+            ImageDetails { image, image_view },
             extent,
             Format::R16G16B16A16_SFLOAT,
         );
-        Ok((allocated_image, allocation))
-  }
-        
-    //egui only 
+        let allocation_unit = AllocationUnit {
+            unit: AllocationUnitType::Image(allocated_image),
+            allocation,
+        };
+        Ok(allocation_unit)
+    }
+
+    //egui only
     pub fn create_texture_image(
         &self,
         queues: &[Arc<VkQueue>],
         command_pool: &VkCommandPool,
         image_data: &ImageData,
-    ) -> Result<AllocatedImage, &str> {
+    ) -> Result<AllocationUnit, &str> {
         let pixels = match image_data {
             ImageData::Color(color_image) => color_image.pixels.clone(),
             ImageData::Font(font_image) => font_image.srgba_pixels(None).collect::<Vec<Color32>>(),
@@ -140,7 +182,7 @@ impl MemoryAllocator {
         command_pool.end_single_time_command(queues[0].clone(), single_time_command);
 
         VkBuffer::copy_buffer_to_image(
-            *staging_buffer,
+            *staging_buffer.unit.get_copied::<VkBuffer>(),
             image,
             extent,
             queues[0].clone(),
@@ -164,14 +206,13 @@ impl MemoryAllocator {
                 .create_image_view(&image_view_create_info, None)
                 .unwrap()
         };
-        Ok(AllocatedImage {
-            image_details: ImageDetails {
-                image,
-                image_view,
-            },
+        Ok(AllocationUnit {
+            unit: AllocationUnitType::Image(AllocatedImage {
+                image_details: ImageDetails { image, image_view },
+                extent,
+                image_format: format,
+            }),
             allocation,
-            extent,
-            image_format: format,
         })
     }
 
@@ -180,7 +221,7 @@ impl MemoryAllocator {
         buffer_size: u64,
         buffer_elements: &[T],
         queues: &[Arc<VkQueue>],
-    ) -> Result<VkBuffer, Error>
+    ) -> Result<AllocationUnit, Error>
     where
         T: Clone,
     {
@@ -212,10 +253,10 @@ impl MemoryAllocator {
         memory_usage: MemoryUsage,
         memory_property_flags: MemoryPropertyFlags,
         command_pool: &VkCommandPool,
-    ) -> Result<VkBuffer, Error>
+    ) -> Result<AllocationUnit, anyhow::Error>
     where
-        T: Clone + Debug
-    {   
+        T: Clone + Debug,
+    {
         let buffer_size = std::mem::size_of_val(buffer_elements) as u64;
         let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
@@ -237,14 +278,14 @@ impl MemoryAllocator {
         )?;
 
         VkBuffer::copy_buffer(
-            *staging_buffer,
-            *buffer,
+            staging_buffer.unit.get_copied::<VkBuffer>(),
+            buffer.unit.get_copied::<VkBuffer>(),
             buffer_size as u64,
             queues[0].clone(),
             command_pool,
         );
 
-        unsafe { self.destroy_buffer(staging_buffer.buffer, &mut staging_buffer.allocation) };
+        unsafe { self.destroy_buffer(*staging_buffer.unit.get_copied::<VkBuffer>(), &mut staging_buffer.allocation) };
         Ok(buffer)
     }
 
@@ -255,7 +296,7 @@ impl MemoryAllocator {
         buffer_usage: BufferUsageFlags,
         memory_usage: MemoryUsage,
         memory_property_flags: MemoryPropertyFlags,
-    ) -> Result<VkBuffer, Error> {
+    ) -> Result<AllocationUnit, Error> {
         let queue_family_indices = queues
             .iter()
             .map(|queue| queue.queue_family_index)
@@ -272,19 +313,17 @@ impl MemoryAllocator {
             flags: AllocationCreateFlags::MAPPED,
             ..Default::default()
         };
-      let (buffer, allocation) = unsafe {
+        let (buffer, allocation) = unsafe {
             self.allocator
                 .create_buffer(&buffer_info, &create_info)
                 .unwrap()
         };
         let info = BufferDeviceAddressInfo::default().buffer(buffer);
         let address = unsafe { self.device.get_buffer_device_address(&info) };
-        Ok(VkBuffer {
-            buffer,
+        Ok(AllocationUnit {
+            unit: AllocationUnitType::Buffer(VkBuffer { buffer, address }),
             allocation,
-            address,
         })
-    
     }
 
     fn allocation_create_info(

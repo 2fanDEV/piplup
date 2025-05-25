@@ -1,11 +1,11 @@
-use std::{collections::VecDeque, marker::PhantomData, sync::Arc};
+use std::{collections::VecDeque, sync::Arc};
 
 use ash::vk::Image;
 use vk_mem::Allocation;
 
 use super::{
     device::VkDevice,
-    memory_allocator::{self, MemoryAllocator},
+    memory_allocator::{MemoryAllocator},
 };
 
 pub struct DestroyImageTask {
@@ -13,7 +13,7 @@ pub struct DestroyImageTask {
     pub allocation: Allocation,
 }
 
-trait CleanUpTask<'a> {
+pub trait CleanUpTask<'a> {
     fn execute(&mut self, device: Arc<VkDevice>, malloc: Arc<MemoryAllocator>);
 }
 

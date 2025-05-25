@@ -6,6 +6,7 @@ fn main() {
     println!("Hello, world!");
     let mut app = App::default();
     let event_loop = EventLoop::new().unwrap();
+    let i = 32;
     env_logger::Builder::new()
         .filter_level(LevelFilter::Debug)
         .try_init()
