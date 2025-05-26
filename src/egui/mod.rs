@@ -147,6 +147,7 @@ impl EguiRenderer {
                                     &[graphics_queue.clone()],
                                     &egui_cmd_pool,
                                     image_data,
+                                    true
                                 )
                                 .unwrap()
                                 .unit
@@ -169,7 +170,7 @@ impl EguiRenderer {
                                 .write_image_descriptors(
                                     &allocated_image.image_details.image_view,
                                     ShaderStageFlags::FRAGMENT,
-                                    DescriptorType::COMBINED_IMAGE_SAMPLER,
+                                    DescriptorType::STORAGE_IMAGE,
                                     sampler,
                                 )
                                 .unwrap())
@@ -301,7 +302,7 @@ impl EguiRenderer {
                     mesh,
                     |elements, flags, usage, mem_flags| {
                         self.memory_allocator
-                            .create_buffer(
+                            .create_buffer_with_mapped_memory(
                                 &elements,
                                 &[self.graphics_queue.clone()],
                                 flags,
@@ -315,7 +316,7 @@ impl EguiRenderer {
                     },
                     |elements, flags, usage, mem_flags| {
                         self.memory_allocator
-                            .create_buffer(
+                            .create_buffer_with_mapped_memory(
                                 &elements,
                                 &[self.graphics_queue.clone()],
                                 flags,

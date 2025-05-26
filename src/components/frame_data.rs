@@ -13,14 +13,18 @@ use super::{
     memory_allocator::MemoryAllocator, queue::VkQueue,
 };
 
+pub struct FrameResources {
+    pub descriptor_allocator: RefCell<DescriptorAllocator>,
+    pub deletion_queue: DeletionQueue
+}
+
 pub struct FrameData {
     pub command_buffer: CommandBuffer,
     pub egui_command_buffer: CommandBuffer,
     pub render_semaphore: Vec<Semaphore>,
     pub swapchain_semaphore: Vec<Semaphore>,
     pub render_fence: Vec<Fence>,
-    pub descriptor_allocator: RefCell<DescriptorAllocator>,
-    pub deletion_queue: DeletionQueue,
+    pub frame_resources: FrameResources
 }
 
 impl FrameData {
@@ -31,8 +35,6 @@ impl FrameData {
     ) -> Self {
         let mut deletion_queue = DeletionQueue::new(device.clone(), memory_allocator.clone());
         let command_pool = VkCommandPool::new(queue);
-  /*      deletion_queue.enqueue(FType::TASK(Box::new(DestroyCommandPoolTask {
-            pool: *command_pool }))); */
         let descriptor_allocator = RefCell::new(DescriptorAllocator::new(
                     device.clone(),
                     16,
@@ -59,8 +61,10 @@ impl FrameData {
                     .create_semaphore(&create_semaphore_info(), None)
                     .unwrap()],
                 render_fence: vec![device.create_fence(&create_fence_info(), None).unwrap()],
-                descriptor_allocator: descriptor_allocator.clone(),
-                deletion_queue
+                frame_resources: FrameResources {
+                    descriptor_allocator: descriptor_allocator.clone(),
+                    deletion_queue
+                }
             }
         }
     }

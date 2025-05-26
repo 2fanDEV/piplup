@@ -13,9 +13,10 @@ pub fn image_create_info<'a>(
     format: Format,
     flags: ImageUsageFlags,
     extent: Extent3D,
-    initial_layout: Option<ImageLayout>
+    initial_layout: Option<ImageLayout>,
+    mipmapped: bool
 ) -> ImageCreateInfo<'a> {
-    ImageCreateInfo::default()
+    let mut info = ImageCreateInfo::default()
         .format(format)
         .extent(extent)
         .usage(flags)
@@ -24,7 +25,11 @@ pub fn image_create_info<'a>(
         .array_layers(1)
         .samples(SampleCountFlags::TYPE_1)
         .tiling(ImageTiling::OPTIMAL)
-        .initial_layout(initial_layout.unwrap_or(ImageLayout::UNDEFINED))
+        .initial_layout(initial_layout.unwrap_or(ImageLayout::UNDEFINED));
+    if mipmapped {
+        info.mip_levels(extent.width.max(extent.height).ilog2() + 1);
+    }
+    info
 }
 
 pub fn image_view_create_info<'a>(

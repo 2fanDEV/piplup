@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, rc::Rc, sync::Arc};
 
-use ash::vk::{CommandPool, DescriptorPool, Image};
+use ash::vk::{Buffer, CommandPool, Image};
 use log::debug;
 use vk_mem::Allocation;
 
@@ -19,6 +19,11 @@ pub struct DestroyDescriptorPools {
 
 pub struct DestroyCommandPoolTask {
     pub pool: CommandPool,
+}
+
+pub struct DestroyBufferTask {
+    pub buffer: Buffer,
+    pub allocation: Allocation
 }
 
 pub trait CleanUpTask<'a> {
@@ -46,6 +51,13 @@ impl CleanUpTask<'static> for DestroyDescriptorPools {
         debug!("DescriptorPool have been deleted");
     }
 }
+
+impl CleanUpTask<'static> for DestroyBufferTask {
+    fn execute(&mut self, device: Arc<VkDevice>, malloc: Arc<MemoryAllocator>) {
+        unsafe { malloc.destroy_buffer(self.buffer, &mut self.allocation) };
+    }
+}
+
 
 pub enum FType {
     DEVICE(Box<dyn FnOnce(Arc<VkDevice>)>),

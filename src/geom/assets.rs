@@ -120,7 +120,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                     },
                     |buffer_elements, buffer_usage, memory_usage, memory_property_flags| {
                         memory_allocator
-                            .create_buffer(
+                            .create_buffer_with_mapped_memory(
                                 &buffer_elements,
                                 queues,
                                 buffer_usage,
@@ -132,7 +132,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                     },
                     |buffer_elements, buffer_usage, memory_usage, memory_property_flags| {
                         memory_allocator
-                            .create_buffer(
+                            .create_buffer_with_mapped_memory(
                                 &buffer_elements,
                                 queues,
                                 buffer_usage,

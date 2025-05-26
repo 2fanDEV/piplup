@@ -83,6 +83,7 @@ impl MemoryAllocator {
         initial_layout: Option<ImageLayout>,
         flags: ImageUsageFlags,
         aspect_flags: ImageAspectFlags,
+        mipmapped: bool
     ) -> Result<AllocationUnit, Error> {
         let extent = Extent3D::default()
             .width(swapchain.details.window_sizes.width)
@@ -97,6 +98,7 @@ impl MemoryAllocator {
                 | flags,
             extent,
             initial_layout,
+            mipmapped
         );
 
         let mut allocation_create_info = AllocationCreateInfo::default();
@@ -134,6 +136,7 @@ impl MemoryAllocator {
         queues: &[Arc<VkQueue>],
         command_pool: &VkCommandPool,
         image_data: &ImageData,
+        mipmapped: bool
     ) -> Result<AllocationUnit, &str> {
         let pixels = match image_data {
             ImageData::Color(color_image) => color_image.pixels.clone(),
@@ -156,6 +159,7 @@ impl MemoryAllocator {
                 | ImageUsageFlags::SAMPLED,
             extent,
             Some(ImageLayout::UNDEFINED),
+            mipmapped
         );
         let create_info = Self::allocation_create_info(
             AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_RANDOM,
@@ -245,7 +249,8 @@ impl MemoryAllocator {
         Ok(staging_buffer)
     }
 
-    pub fn create_buffer<T>(
+
+    pub fn create_buffer_with_mapped_memory<T>(
         &self,
         buffer_elements: &[T],
         queues: &[Arc<VkQueue>],

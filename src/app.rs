@@ -15,7 +15,8 @@ pub struct App {
 #[allow(warnings)]
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-       let window_attributes = WindowAttributes::default().with_inner_size(LogicalSize::new(3840, 2160));
+        let window_attributes =
+            WindowAttributes::default().with_inner_size(LogicalSize::new(3840, 2160));
         self.window = event_loop.create_window(window_attributes).ok();
         self.renderer = Renderer::init(&self.window.as_ref().unwrap()).ok();
     }
@@ -26,7 +27,12 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        self.renderer.as_mut().unwrap().egui_renderer.integration.input(self.window.as_mut().unwrap(), &event);
+        self.renderer
+            .as_mut()
+            .unwrap()
+            .egui_renderer
+            .integration
+            .input(self.window.as_mut().unwrap(), &event);
         self.renderer
             .as_mut()
             .unwrap()

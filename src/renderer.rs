@@ -9,29 +9,33 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        self, AttachmentLoadOp, ClearDepthStencilValue, ClearValue, ColorComponentFlags,
-        CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags,
-        CullModeFlags, DebugUtilsMessengerEXT, DynamicState, Extent2D, Fence, Format, FrontFace,
-        ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType, Offset2D, PipelineBindPoint,
+        self, AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
+        ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
+        CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DescriptorType,
+        DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout,
+        ImageUsageFlags, IndexType, MemoryPropertyFlags, Offset2D, PipelineBindPoint,
         PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
-        RenderPassBeginInfo, SampleCountFlags, Semaphore, ShaderStageFlags, SubmitInfo,
+        RenderPassBeginInfo, SampleCountFlags, Sampler, Semaphore, ShaderStageFlags, SubmitInfo,
         SubpassContents, Viewport,
     },
+    Device,
 };
+use egui::frame;
 use log::debug;
 use nalgebra::Matrix4;
-use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo};
+use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
 
 use crate::{
     components::{
-        allocation_types::{AllocatedImage, VkFrameBuffer, IDENTIFIER},
-        command_buffers::VkCommandPool,
-        deletion_queue::{DeletionQueue, DestroyImageTask, FType},
+        allocation_types::{AllocatedImage, VkBuffer, VkFrameBuffer, IDENTIFIER},
+        command_buffers::{self, VkCommandPool},
+        deletion_queue::{self, DeletionQueue, DestroyBufferTask, DestroyImageTask, FType},
+        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
         device::{self, VkDevice},
-        frame_data::FrameData,
+        frame_data::{self, FrameData},
         image_util::{copy_image_to_image, image_transition},
         instance::{self, VkInstance},
         memory_allocator::{AllocationUnit, MemoryAllocator},
@@ -41,6 +45,7 @@ use crate::{
         },
         queue::{QueueType, VkQueue},
         render_pass::VkRenderPass,
+        sampler::VkSampler,
         surface,
         swapchain::{ImageDetails, KHRSwapchain},
     },
@@ -48,6 +53,7 @@ use crate::{
     geom::{
         assets::{self, MeshAsset},
         push_constants::PushConstant,
+        scene::SceneData,
         triangle_push_constant,
         vertex_3d::Vertex3D,
         VertexAttributes,
@@ -75,6 +81,7 @@ pub struct Renderer {
     framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
     frame_data: Vec<FrameData>,
     frame_idx: usize,
+    scene_data: SceneData,
     render_area: Rect2D,
     extent: Extent2D,
     command_pool: VkCommandPool,
@@ -147,6 +154,7 @@ impl Renderer {
             None,
             ImageUsageFlags::STORAGE | ImageUsageFlags::COLOR_ATTACHMENT,
             ImageAspectFlags::COLOR,
+            false,
         )?;
         let allocation = draw_image.allocation;
         let draw_image = draw_image.unit.get_cloned::<AllocatedImage>();
@@ -164,6 +172,7 @@ impl Renderer {
             None,
             ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
             ImageAspectFlags::DEPTH,
+            false,
         )?;
         let depth_allocation = depth_image.allocation;
         let depth_image = depth_image.unit.get_copied::<AllocatedImage>();
@@ -189,6 +198,21 @@ impl Renderer {
             extent,
             &[draw_image.image_details, depth_image.image_details],
         );
+        let mut descriptor_allocator = DescriptorAllocator::new(
+            vk_device.clone(),
+            16,
+            vec![PoolSizeRatio::new(
+                DescriptorType::COMBINED_IMAGE_SAMPLER,
+                1.0,
+            )],
+        );
+        let scene_data = SceneData::default();
+        let scene_descriptor = descriptor_allocator.write_image_descriptors(
+            &draw_image.image_details.image_view,
+            ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+            DescriptorType::UNIFORM_BUFFER,
+            None,
+        )?;
         /* let depth_framebuffers = VkFrameBuffer::create_framebuffers(
             IDENTIFIER::DEPTH,
             vk_device.clone(),
@@ -328,6 +352,7 @@ impl Renderer {
             framebuffers,
             memory_allocator,
             gltf_buffers,
+            scene_data,
             frame_data,
             frame_idx: 0,
             render_area,
@@ -347,10 +372,9 @@ impl Renderer {
 
     fn draw(&mut self, frame_idx: usize, window: &Window) -> Result<()> {
         unsafe {
-            let frame_data = &self.frame_data[frame_idx];
             self.device
-                .wait_for_fences(&frame_data.render_fence, true, u64::MAX)?;
-            self.device.reset_fences(&frame_data.render_fence)?;
+                .wait_for_fences(&self.frame_data[frame_idx].render_fence, true, u64::MAX)?;
+            self.device.reset_fences(&self.frame_data[frame_idx].render_fence)?;
 
             let image_index = ImageIndex::new(
                 self.swapchain
@@ -358,14 +382,14 @@ impl Renderer {
                     .acquire_next_image(
                         **self.swapchain,
                         u64::MAX,
-                        frame_data.swapchain_semaphore[0],
+                        self.frame_data[frame_idx].swapchain_semaphore[0],
                         Fence::null(),
                     )
                     .unwrap(),
             );
 
             self.device.reset_command_buffer(
-                frame_data.command_buffer,
+                self.frame_data[frame_idx].command_buffer,
                 CommandBufferResetFlags::empty(),
             )?;
 
@@ -373,11 +397,15 @@ impl Renderer {
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
             ];
-
-            self.record_command_buffer(frame_idx, &image_index, window)
-                .unwrap();
+            
+            self.record_command_buffer(
+                &mut self.frame_data[frame_idx],
+                &image_index,
+                window,
+            )
+            .unwrap();
             self.egui_renderer.draw(
-                frame_data.egui_command_buffer,
+                self.frame_data[frame_idx].egui_command_buffer,
                 &image_index,
                 window,
                 self.viewports.clone(),
@@ -387,34 +415,35 @@ impl Renderer {
             self.submit_queue(
                 **self.graphics_queue,
                 frame_idx,
-                &[frame_data.command_buffer, frame_data.egui_command_buffer],
+                &[self.frame_data[frame_idx].command_buffer, self.frame_data[frame_idx].egui_command_buffer],
                 &stage_masks,
             );
             let image_indices = vec![image_index.index];
             self.present_queue(
                 **self.graphics_queue,
-                &frame_data.render_semaphore,
+                &self.frame_data[frame_idx].render_semaphore,
                 &image_indices,
             );
             debug!("self.frame_idx={:?}", self.frame_idx);
             self.frame_data[self.frame_idx].deletion_queue.flush();
-            self.frame_data[self.frame_idx].descriptor_allocator.borrow_mut().clear_pools();
+            self.frame_data[self.frame_idx]
+                .descriptor_allocator
+                .borrow_mut()
+                .clear_pools();
         }
         Ok(())
     }
 
     fn record_command_buffer(
         &self,
-        frame_idx: usize,
+        frame_data: &mut FrameData,
         image_index: &ImageIndex,
         window: &Window,
     ) -> Result<()> {
         unsafe {
-            let frame_data = &self.frame_data[frame_idx];
-            let cmd = frame_data.command_buffer;
             let current_image = self.swapchain_image_details[**image_index as usize];
             self.device.begin_command_buffer(
-                cmd,
+                frame_data.command_buffer,
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
 
@@ -432,7 +461,7 @@ impl Renderer {
                 },
             ];
             self.device.cmd_begin_render_pass(
-                cmd,
+                frame_data.command_buffer,
                 &RenderPassBeginInfo::default()
                     .render_pass(**self.render_pass)
                     .framebuffer(*self.framebuffers.get(&IDENTIFIER::DRAW).unwrap()[0])
@@ -440,12 +469,12 @@ impl Renderer {
                     .clear_values(&clear_value),
                 SubpassContents::INLINE,
             );
-            self.draw_geom(cmd, &self.gltf_buffers[2], window);
+            self.draw_geom(frame_data.command_buffer, &mut frame_data.deletion_queue, &self.gltf_buffers[2], window)?;
 
             self.device.cmd_end_render_pass(frame_data.command_buffer);
             image_transition(
                 self.device.clone(),
-                cmd,
+                frame_data.command_buffer,
                 self.graphics_queue.queue_family_index,
                 current_image.image,
                 ImageLayout::UNDEFINED,
@@ -456,7 +485,7 @@ impl Renderer {
                 .height(self.draw_image.extent.height);
             copy_image_to_image(
                 &self.device,
-                cmd,
+                frame_data.command_buffer,
                 self.draw_image.image_details.image,
                 current_image.image,
                 extent,
@@ -464,7 +493,7 @@ impl Renderer {
             );
             image_transition(
                 self.device.clone(),
-                cmd,
+                frame_data.command_buffer,
                 self.graphics_queue.queue_family_index,
                 current_image.image,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -480,10 +509,41 @@ impl Renderer {
     fn draw_geom<T: VertexAttributes + Debug>(
         &self,
         cmd: CommandBuffer,
+        deletion_queue: &mut DeletionQueue,
         buffer: &MeshAsset<T>,
         window: &Window,
-    ) {
+    ) -> Result<()> {
         unsafe {
+            let gpu_scene_data_buffer = self.memory_allocator.allocate_single_buffer(
+                size_of::<SceneData>() as u64,
+                &[self.graphics_queue.clone()],
+                BufferUsageFlags::UNIFORM_BUFFER,
+                vk_mem::MemoryUsage::CpuToGpu,
+                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
+            )?;
+            let scene_data_allocation = gpu_scene_data_buffer.allocation;
+            let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
+
+            deletion_queue.enqueue(FType::TASK(Box::new(DestroyBufferTask {
+                buffer: *gpu_scene_data_buffer,
+                allocation: scene_data_allocation,
+            })));
+
+            //write buffer with self.scene data
+            // HERE
+            //
+
+            // Descriptors
+            let descriptor_write = self.frame_data[self.frame_idx]
+                .descriptor_allocator
+                .borrow_mut()
+                .write_image_descriptors(
+                    &self.draw_image.image_details.image_view,
+                    ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+                    DescriptorType::UNIFORM_BUFFER,
+                    None,
+                )
+                .unwrap();
             self.device
                 .cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, *self.gltf_pipeline);
             self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
@@ -517,6 +577,7 @@ impl Renderer {
                 0,
             );
         };
+        Ok(())
     }
 
     #[allow(dead_code)]
