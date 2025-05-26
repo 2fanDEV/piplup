@@ -108,7 +108,7 @@ impl EguiRenderer {
             extent,
             &image_details,
         );
-
+        debug!("8");
         #[allow(irrefutable_let_patterns)]
         while let full_output = integration.run(
             |ctx| {
@@ -135,7 +135,6 @@ impl EguiRenderer {
             if textures_delta_set.is_empty() {
                 break;
             }
-
             for delta in textures_delta_set {
                 texture_informations.insert(
                     delta.0,
@@ -147,7 +146,7 @@ impl EguiRenderer {
                                     &[graphics_queue.clone()],
                                     &egui_cmd_pool,
                                     image_data,
-                                    true
+                                    false,
                                 )
                                 .unwrap()
                                 .unit
@@ -170,7 +169,7 @@ impl EguiRenderer {
                                 .write_image_descriptors(
                                     &allocated_image.image_details.image_view,
                                     ShaderStageFlags::FRAGMENT,
-                                    DescriptorType::STORAGE_IMAGE,
+                                    DescriptorType::COMBINED_IMAGE_SAMPLER,
                                     sampler,
                                 )
                                 .unwrap())
@@ -179,7 +178,7 @@ impl EguiRenderer {
                 );
             }
         }
-
+        debug!("9");
         let cmd = egui_cmd_pool.single_time_command()?;
         let _ = texture_informations.values().map(|tex_data| {
             image_transition(

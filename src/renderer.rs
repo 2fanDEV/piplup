@@ -35,7 +35,7 @@ use crate::{
         deletion_queue::{self, DeletionQueue, DestroyBufferTask, DestroyImageTask, FType},
         descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
         device::{self, VkDevice},
-        frame_data::{self, FrameData},
+        frame_data::{self, FrameData, FrameResources},
         image_util::{copy_image_to_image, image_transition},
         instance::{self, VkInstance},
         memory_allocator::{AllocationUnit, MemoryAllocator},
@@ -207,12 +207,12 @@ impl Renderer {
             )],
         );
         let scene_data = SceneData::default();
-        let scene_descriptor = descriptor_allocator.write_image_descriptors(
+        /* let scene_descriptor = descriptor_allocator.write_image_descriptors(
             &draw_image.image_details.image_view,
             ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
             DescriptorType::UNIFORM_BUFFER,
             None,
-        )?;
+        )?;*/
         /* let depth_framebuffers = VkFrameBuffer::create_framebuffers(
             IDENTIFIER::DEPTH,
             vk_device.clone(),
@@ -231,7 +231,6 @@ impl Renderer {
                 graphics_queue.clone(),
             ));
         }
-
         let render_area = Rect2D::default()
             .offset(Offset2D::default().y(0).x(0))
             .extent(extent);
@@ -285,7 +284,6 @@ impl Renderer {
             create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
         )?;
-
         let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
@@ -294,7 +292,7 @@ impl Renderer {
             &[graphics_queue.clone()],
             command_pool.clone(),
         )?;
-
+        debug!("1");
         /*  let mesh_triangle_buffers = vec![MeshBuffers::new(
             mesh,
             |elements, usage, mem_usage, mem_flags| {
@@ -332,6 +330,7 @@ impl Renderer {
             swapchain.details.clone().choose_swapchain_format().format,
             swapchain_image_details.clone(),
         )?;
+
         Ok(Self {
             instance: vk_instance,
             debug_instance,
@@ -372,9 +371,13 @@ impl Renderer {
 
     fn draw(&mut self, frame_idx: usize, window: &Window) -> Result<()> {
         unsafe {
+            self.device.wait_for_fences(
+                &self.frame_data[frame_idx].render_fence,
+                true,
+                u64::MAX,
+            )?;
             self.device
-                .wait_for_fences(&self.frame_data[frame_idx].render_fence, true, u64::MAX)?;
-            self.device.reset_fences(&self.frame_data[frame_idx].render_fence)?;
+                .reset_fences(&self.frame_data[frame_idx].render_fence)?;
 
             let image_index = ImageIndex::new(
                 self.swapchain
@@ -397,13 +400,29 @@ impl Renderer {
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
             ];
-            
-            self.record_command_buffer(
-                &mut self.frame_data[frame_idx],
-                &image_index,
-                window,
-            )
-            .unwrap();
+
+            {
+                Self::record_command_buffer(
+                    self.frame_data[frame_idx].command_buffer,
+                    &image_index,
+                    window,
+                    &mut self.frame_data[frame_idx].frame_resources,
+                    &self.device.clone(),
+                    &self.swapchain_image_details,
+                    &self.draw_image,
+                    &self.graphics_queue.clone(),
+                    &self.render_area,
+                    &self.viewports,
+                    &self.gltf_pipeline,
+                    &self.gltf_buffers,
+                    &self.memory_allocator,
+                    &self.extent,
+                    &self.render_pass,
+                    &self.depth_image,
+                    &self.framebuffers,
+                )
+                .unwrap();
+            }
             self.egui_renderer.draw(
                 self.frame_data[frame_idx].egui_command_buffer,
                 &image_index,
@@ -411,11 +430,14 @@ impl Renderer {
                 self.viewports.clone(),
                 self.render_area,
             )?;
-
+            let frame_data = &self.frame_data[frame_idx];
             self.submit_queue(
                 **self.graphics_queue,
                 frame_idx,
-                &[self.frame_data[frame_idx].command_buffer, self.frame_data[frame_idx].egui_command_buffer],
+                &[
+                    self.frame_data[frame_idx].command_buffer,
+                    self.frame_data[frame_idx].egui_command_buffer,
+                ],
                 &stage_masks,
             );
             let image_indices = vec![image_index.index];
@@ -425,8 +447,12 @@ impl Renderer {
                 &image_indices,
             );
             debug!("self.frame_idx={:?}", self.frame_idx);
-            self.frame_data[self.frame_idx].deletion_queue.flush();
             self.frame_data[self.frame_idx]
+                .frame_resources
+                .deletion_queue
+                .flush();
+            self.frame_data[self.frame_idx]
+                .frame_resources
                 .descriptor_allocator
                 .borrow_mut()
                 .clear_pools();
@@ -435,15 +461,28 @@ impl Renderer {
     }
 
     fn record_command_buffer(
-        &self,
-        frame_data: &mut FrameData,
+        cmd: CommandBuffer,
         image_index: &ImageIndex,
         window: &Window,
+        frame_resources: &mut FrameResources,
+        device: &Arc<VkDevice>,
+        swapchain_image_details: &[ImageDetails],
+        draw_image: &AllocatedImage,
+        graphics_queue: &Arc<VkQueue>,
+        render_area: &Rect2D,
+        viewports: &[Viewport],
+        gltf_pipeline: &VkPipeline,
+        gltf_buffers: &[MeshAsset<Vertex3D>],
+        memory_allocator: &Arc<MemoryAllocator>,
+        extent: &Extent2D,
+        render_pass: &Arc<VkRenderPass>,
+        depth_image: &AllocatedImage,
+        framebuffers: &HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
     ) -> Result<()> {
         unsafe {
-            let current_image = self.swapchain_image_details[**image_index as usize];
-            self.device.begin_command_buffer(
-                frame_data.command_buffer,
+            let current_image = swapchain_image_details[**image_index as usize];
+            device.begin_command_buffer(
+                cmd,
                 &CommandBufferBeginInfo::default().flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
 
@@ -460,119 +499,140 @@ impl Renderer {
                     },
                 },
             ];
-            self.device.cmd_begin_render_pass(
-                frame_data.command_buffer,
+            device.cmd_begin_render_pass(
+                cmd,
                 &RenderPassBeginInfo::default()
-                    .render_pass(**self.render_pass)
-                    .framebuffer(*self.framebuffers.get(&IDENTIFIER::DRAW).unwrap()[0])
-                    .render_area(self.render_area)
+                    .render_pass(***render_pass) // Dereference VkRenderPass
+                    .framebuffer(*framebuffers.get(&IDENTIFIER::DRAW).unwrap()[0])
+                    .render_area(*render_area)
                     .clear_values(&clear_value),
                 SubpassContents::INLINE,
             );
-            self.draw_geom(frame_data.command_buffer, &mut frame_data.deletion_queue, &self.gltf_buffers[2], window)?;
+            Self::draw_geom::<Vertex3D>(
+                cmd,
+                window,
+                frame_resources,
+                gltf_buffers,
+                memory_allocator,
+                device,
+                extent,
+                viewports,
+                gltf_pipeline,
+                render_area,
+                draw_image,
+                graphics_queue,
+            )?;
 
-            self.device.cmd_end_render_pass(frame_data.command_buffer);
+            device.cmd_end_render_pass(cmd);
             image_transition(
-                self.device.clone(),
-                frame_data.command_buffer,
-                self.graphics_queue.queue_family_index,
+                device.clone(),
+                cmd,
+                graphics_queue.queue_family_index,
                 current_image.image,
                 ImageLayout::UNDEFINED,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
             );
             let extent = Extent2D::default()
-                .width(self.draw_image.extent.width)
-                .height(self.draw_image.extent.height);
+                .width(draw_image.extent.width)
+                .height(draw_image.extent.height);
             copy_image_to_image(
-                &self.device,
-                frame_data.command_buffer,
-                self.draw_image.image_details.image,
+                &device,
+                cmd,
+                draw_image.image_details.image,
                 current_image.image,
                 extent,
-                self.extent,
+                extent, // Pass extent directly
             );
             image_transition(
-                self.device.clone(),
-                frame_data.command_buffer,
-                self.graphics_queue.queue_family_index,
+                device.clone(),
+                cmd,
+                graphics_queue.queue_family_index,
                 current_image.image,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
                 ImageLayout::GENERAL,
             );
 
-            self.device.end_command_buffer(frame_data.command_buffer)?;
+            device.end_command_buffer(cmd)?;
         }
 
         Ok(())
     }
 
     fn draw_geom<T: VertexAttributes + Debug>(
-        &self,
         cmd: CommandBuffer,
-        deletion_queue: &mut DeletionQueue,
-        buffer: &MeshAsset<T>,
         window: &Window,
+        frame_resources: &mut FrameResources,
+        gltf_buffers: &[MeshAsset<Vertex3D>],
+        memory_allocator: &Arc<MemoryAllocator>,
+        device: &Arc<VkDevice>,
+        extent: &Extent2D,
+        viewports: &[Viewport],
+        gltf_pipeline: &VkPipeline,
+        render_area: &Rect2D,
+        draw_image: &AllocatedImage,
+        graphics_queue: &Arc<VkQueue>,
     ) -> Result<()> {
         unsafe {
-            let gpu_scene_data_buffer = self.memory_allocator.allocate_single_buffer(
+            let gpu_scene_data_buffer = memory_allocator.allocate_single_buffer(
                 size_of::<SceneData>() as u64,
-                &[self.graphics_queue.clone()],
-                BufferUsageFlags::UNIFORM_BUFFER,
+                &[graphics_queue.clone()],
+                BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 vk_mem::MemoryUsage::CpuToGpu,
                 MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
             )?;
             let scene_data_allocation = gpu_scene_data_buffer.allocation;
             let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
 
-            deletion_queue.enqueue(FType::TASK(Box::new(DestroyBufferTask {
-                buffer: *gpu_scene_data_buffer,
-                allocation: scene_data_allocation,
-            })));
+            frame_resources
+                .deletion_queue
+                .enqueue(FType::TASK(Box::new(DestroyBufferTask {
+                    buffer: *gpu_scene_data_buffer,
+                    allocation: scene_data_allocation,
+                })));
 
             //write buffer with self.scene data
             // HERE
             //
 
             // Descriptors
-            let descriptor_write = self.frame_data[self.frame_idx]
+            let descriptor_write = frame_resources
                 .descriptor_allocator
                 .borrow_mut()
                 .write_image_descriptors(
-                    &self.draw_image.image_details.image_view,
+                    &draw_image.image_details.image_view,
                     ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
                     DescriptorType::UNIFORM_BUFFER,
                     None,
                 )
                 .unwrap();
-            self.device
-                .cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, *self.gltf_pipeline);
-            self.device.cmd_set_scissor(cmd, 0, &[self.render_area]);
-            self.device.cmd_set_viewport(cmd, 0, &self.viewports);
+            device.cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, **gltf_pipeline);
+            device.cmd_set_scissor(cmd, 0, &[*render_area]);
+            device.cmd_set_viewport(cmd, 0, viewports);
 
             let push_constants_data =
-                triangle_push_constant(buffer.mesh_buffers.vertex_buffer.address, self.extent);
-            self.device.cmd_push_constants(
+                triangle_push_constant(gltf_buffers[2].mesh_buffers.vertex_buffer.address, *extent);
+            device.cmd_push_constants(
                 cmd,
-                self.gltf_pipeline.pipeline_layout,
+                gltf_pipeline.pipeline_layout,
                 ShaderStageFlags::VERTEX,
                 0,
                 &push_constants_data,
             );
 
-            /*   self.device
+            /*   device
             .cmd_bind_vertex_buffers(cmd, 0, &[buffer.vertex_buffer.buffer], &[0]); */
-            self.device.cmd_bind_index_buffer(
+            device.cmd_bind_index_buffer(
                 cmd,
-                buffer.mesh_buffers.index_buffer.buffer,
+                gltf_buffers[2].mesh_buffers.index_buffer.buffer,
                 0,
                 IndexType::UINT32,
             );
 
-            self.device.cmd_draw_indexed(
+            device.cmd_draw_indexed(
                 cmd,
-                buffer.surfaces[0].count as u32,
+                gltf_buffers[2].surfaces[0].count as u32,
                 1,
-                buffer.surfaces[0].start_index,
+                gltf_buffers[2].surfaces[0].start_index,
                 0,
                 0,
             );
