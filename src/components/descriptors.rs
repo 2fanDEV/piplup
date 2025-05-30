@@ -15,6 +15,7 @@ use ash::{
     },
     Device,
 };
+use log::debug;
 
 use super::{allocation_types::VkBuffer, device::VkDevice, sampler::VkSampler};
 
@@ -256,12 +257,35 @@ impl DescriptorAllocator {
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             descriptor_type,
         );
-
         writer.update_set(self.device.clone(), descriptor_set);
-
         Ok(DescriptorSetDetails {
             descriptor_set,
             layout,
+        })
+    }
+
+    pub fn write_buffer_descriptors(
+        &mut self,
+        buffer: &VkBuffer,
+        size: u64,
+        shader_stage: ShaderStageFlags,
+        descriptor_type: DescriptorType,
+    ) -> Result<DescriptorSetDetails, Error> {
+        let mut writer = DescriptorWriter::new();
+        let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
+        descriptor_layout_builder.add_binding(0, descriptor_type);
+        let layout = descriptor_layout_builder.build(
+            self.device.clone(),
+            shader_stage,
+            DescriptorSetLayoutCreateFlags::empty(),
+        );
+
+        let descriptor_set = self.allocate(self.device.clone(), &[layout]);
+        writer.write_buffer(0, *buffer, size, 0, descriptor_type);
+        writer.update_set(self.device.clone(), descriptor_set);
+        Ok(DescriptorSetDetails {
+            descriptor_set: descriptor_set,
+            layout: layout,
         })
     }
 

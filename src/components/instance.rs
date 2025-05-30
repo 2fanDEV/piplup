@@ -20,7 +20,7 @@ use winit::{raw_window_handle::HasDisplayHandle, window::Window};
 pub fn load_vulkan_library() -> Result<Entry, LoadingError> {
     #[cfg(target_os = "macos")]
     let entry_path = env::home_dir().unwrap().to_str().unwrap().to_owned()
-        + "/VulkanSDK/1.4.309.0/macOS/lib/libvulkan.dylib";
+        + "/VulkanSDK/1.4.313.1/macOS/lib/libvulkan.dylib";
     Ok(unsafe { Entry::load_from(entry_path)? })
 }
 

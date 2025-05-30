@@ -1,11 +1,8 @@
-use std::{
-    any::{self, Any}, fmt::Debug, io::Error, mem::Discriminant, ops::Deref, sync::Arc
-};
+use std::{any::Any, ffi, fmt::Debug, io::Error, ops::Deref, sync::Arc};
 
-use anyhow::anyhow;
 use ash::vk::{
     BufferCreateInfo, BufferDeviceAddressInfo, BufferUsageFlags, Extent3D, Format,
-    ImageAspectFlags, ImageLayout, ImageUsageFlags, MemoryPropertyFlags, SharingMode,
+    ImageAspectFlags, ImageLayout, ImageUsageFlags, MemoryPropertyFlags, Packed24_8, SharingMode,
 };
 use egui::{Color32, ImageData};
 use vk_mem::{
@@ -15,7 +12,7 @@ use vk_mem::{
 
 use super::{
     allocation_types::{AllocatedImage, VkBuffer},
-    command_buffers::VkCommandPool,
+    command_buffers::{self, VkCommandPool},
     device::VkDevice,
     image_util::{image_create_info, image_transition, image_view_create_info},
     queue::VkQueue,
@@ -37,26 +34,25 @@ pub struct AllocationUnit {
 impl AllocationUnitType {
     pub fn get_cloned<T: Any + Clone>(&self) -> T {
         match self {
-            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any)
-                .downcast_ref::<T>().cloned(),
-            AllocationUnitType::Image(image) => (image as &dyn Any)
-                .downcast_ref::<T>().cloned(),
-        }.unwrap()
+            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any).downcast_ref::<T>().cloned(),
+            AllocationUnitType::Image(image) => (image as &dyn Any).downcast_ref::<T>().cloned(),
+        }
+        .unwrap()
     }
-    
+
     pub fn get_copied<T: Any + Copy>(&self) -> T {
         match self {
-            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any)
-                .downcast_ref::<T>().copied(),
-            AllocationUnitType::Image(image) => (image as &dyn Any)
-                .downcast_ref::<T>().copied(),
-        }.unwrap()
+            AllocationUnitType::Buffer(buffer) => (buffer as &dyn Any).downcast_ref::<T>().copied(),
+            AllocationUnitType::Image(image) => (image as &dyn Any).downcast_ref::<T>().copied(),
+        }
+        .unwrap()
     }
 }
 
 pub struct MemoryAllocator {
     allocator: vk_mem::Allocator,
     device: Arc<VkDevice>,
+    queues: Vec<Arc<VkQueue>>,
 }
 
 impl Deref for MemoryAllocator {
@@ -68,37 +64,35 @@ impl Deref for MemoryAllocator {
 }
 
 impl MemoryAllocator {
-    pub fn new(device: Arc<VkDevice>, allocator_create_info: AllocatorCreateInfo) -> Self {
+    pub fn new(
+        device: Arc<VkDevice>,
+        queues: &[Arc<VkQueue>],
+        allocator_create_info: AllocatorCreateInfo,
+    ) -> Self {
         Self {
             device: device.clone(),
             allocator: unsafe { vk_mem::Allocator::new(allocator_create_info).unwrap() },
+            queues: queues.to_vec(),
         }
     }
 
     #[allow(deprecated)]
     pub fn create_image(
         &self,
+        extent: Extent3D,
         swapchain: Arc<KHRSwapchain>,
         format: Format,
         initial_layout: Option<ImageLayout>,
         flags: ImageUsageFlags,
         aspect_flags: ImageAspectFlags,
-        mipmapped: bool
+        mipmapped: bool,
     ) -> Result<AllocationUnit, Error> {
-        let extent = Extent3D::default()
-            .width(swapchain.details.window_sizes.width)
-            .height(swapchain.details.window_sizes.height)
-            .depth(1);
-
         let image_create_info = image_create_info(
             format,
-            ImageUsageFlags::TRANSFER_SRC
-                | ImageUsageFlags::TRANSFER_DST
-                | ImageUsageFlags::SAMPLED
-                | flags,
+            ImageUsageFlags::TRANSFER_SRC | ImageUsageFlags::TRANSFER_DST | flags,
             extent,
             initial_layout,
-            mipmapped
+            mipmapped,
         );
 
         let mut allocation_create_info = AllocationCreateInfo::default();
@@ -118,11 +112,8 @@ impl MemoryAllocator {
                 .create_image_view(&image_view_create_info, None)
                 .unwrap()
         };
-        let allocated_image = AllocatedImage::new(
-            ImageDetails { image, image_view },
-            extent,
-            Format::R16G16B16A16_SFLOAT,
-        );
+        let allocated_image =
+            AllocatedImage::new(ImageDetails { image, image_view }, extent, format);
         let allocation_unit = AllocationUnit {
             unit: AllocationUnitType::Image(allocated_image),
             allocation,
@@ -130,13 +121,63 @@ impl MemoryAllocator {
         Ok(allocation_unit)
     }
 
-    //egui only
-    pub fn create_texture_image(
+    pub fn create_image_with_data(
         &self,
-        queues: &[Arc<VkQueue>],
+        data: u32,
+        extent: Extent3D,
+        swapchain: Arc<KHRSwapchain>,
+        format: Format,
+        usage: ImageUsageFlags,
+        aspect_flags: ImageAspectFlags,
+        command_pool: &VkCommandPool,
+        mipmapped: bool,
+    ) -> Result<AllocationUnit, Error> {
+        let data_size: u64 = (extent.depth * extent.width * extent.height * 4) as u64;
+        let staging_buffer_unit = self.staging_buffer(data_size, &[data], &self.queues)?;
+        let staging_buffer = staging_buffer_unit.unit.get_copied::<VkBuffer>();
+        let image_unit = self.create_image(
+            extent,
+            swapchain,
+            format,
+            None,
+            usage | ImageUsageFlags::TRANSFER_SRC | ImageUsageFlags::TRANSFER_DST,
+            aspect_flags,
+            mipmapped,
+        )?;
+        let image = image_unit.unit.get_copied::<AllocatedImage>();
+
+        let cmd_buffer = command_pool.single_time_command().unwrap();
+        image_transition(
+            self.device.clone(),
+            cmd_buffer,
+            self.queues[0].queue_family_index,
+            image.image_details.image,
+            ImageLayout::UNDEFINED,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+        );
+        VkBuffer::copy_buffer_to_image(*staging_buffer, image.image_details.image, extent, self.queues[0].clone(), command_pool).unwrap();
+        image_transition(
+            self.device.clone(),
+            cmd_buffer,
+            self.queues[0].queue_family_index,
+            image.image_details.image,
+            ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        );
+        command_pool.end_single_time_command(self.queues[0].clone(), cmd_buffer);
+
+        Ok(AllocationUnit {
+            unit: image_unit.unit,
+            allocation: image_unit.allocation,
+        })
+    }
+
+    //egui only
+    pub fn create_egui_texture_image(
+        &self,
         command_pool: &VkCommandPool,
         image_data: &ImageData,
-        mipmapped: bool
+        mipmapped: bool,
     ) -> Result<AllocationUnit, &str> {
         let pixels = match image_data {
             ImageData::Color(color_image) => color_image.pixels.clone(),
@@ -144,7 +185,11 @@ impl MemoryAllocator {
         };
 
         let staging_buffer = self
-            .staging_buffer((size_of::<f32>() * pixels.len()) as u64, &pixels, queues)
+            .staging_buffer(
+                (size_of::<f32>() * pixels.len()) as u64,
+                &pixels,
+                &self.queues,
+            )
             .unwrap();
         let format = Format::R8G8B8A8_SRGB;
 
@@ -159,7 +204,7 @@ impl MemoryAllocator {
                 | ImageUsageFlags::SAMPLED,
             extent,
             Some(ImageLayout::UNDEFINED),
-            mipmapped
+            mipmapped,
         );
         let create_info = Self::allocation_create_info(
             AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_RANDOM,
@@ -178,18 +223,18 @@ impl MemoryAllocator {
         image_transition(
             command_pool.device.clone(),
             single_time_command,
-            queues[0].queue_family_index,
+            self.queues[0].queue_family_index,
             image,
             ImageLayout::UNDEFINED,
             ImageLayout::TRANSFER_DST_OPTIMAL,
         );
-        command_pool.end_single_time_command(queues[0].clone(), single_time_command);
+        command_pool.end_single_time_command(self.queues[0].clone(), single_time_command);
 
         VkBuffer::copy_buffer_to_image(
             *staging_buffer.unit.get_copied::<VkBuffer>(),
             image,
             extent,
-            queues[0].clone(),
+            self.queues[0].clone(),
             command_pool,
         )
         .unwrap();
@@ -198,12 +243,12 @@ impl MemoryAllocator {
         image_transition(
             command_pool.device.clone(),
             single_time_command,
-            queues[0].queue_family_index,
+            self.queues[0].queue_family_index,
             image,
             ImageLayout::TRANSFER_DST_OPTIMAL,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
-        command_pool.end_single_time_command(queues[0].clone(), single_time_command);
+        command_pool.end_single_time_command(self.queues[0].clone(), single_time_command);
         let image_view_create_info = image_view_create_info(image, format, ImageAspectFlags::COLOR);
         let image_view = unsafe {
             self.device
@@ -249,7 +294,6 @@ impl MemoryAllocator {
         Ok(staging_buffer)
     }
 
-
     pub fn create_buffer_with_mapped_memory<T>(
         &self,
         buffer_elements: &[T],
@@ -290,7 +334,12 @@ impl MemoryAllocator {
             command_pool,
         );
 
-        unsafe { self.destroy_buffer(*staging_buffer.unit.get_copied::<VkBuffer>(), &mut staging_buffer.allocation) };
+        unsafe {
+            self.destroy_buffer(
+                *staging_buffer.unit.get_copied::<VkBuffer>(),
+                &mut staging_buffer.allocation,
+            )
+        };
         Ok(buffer)
     }
 

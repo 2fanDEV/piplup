@@ -6,6 +6,7 @@ use ash::{
     },
     Device,
 };
+use log::debug;
 
 use super::device::VkDevice;
 
@@ -27,8 +28,9 @@ pub fn image_create_info<'a>(
         .tiling(ImageTiling::OPTIMAL)
         .initial_layout(initial_layout.unwrap_or(ImageLayout::UNDEFINED));
     if mipmapped {
-        info.mip_levels(extent.width.max(extent.height).ilog2() + 1);
+        info = info.mip_levels(extent.width.max(extent.height).ilog2() + 1);
     }
+    debug!("{:?}", info);
     info
 }
 

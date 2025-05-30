@@ -108,7 +108,6 @@ impl EguiRenderer {
             extent,
             &image_details,
         );
-        debug!("8");
         #[allow(irrefutable_let_patterns)]
         while let full_output = integration.run(
             |ctx| {
@@ -142,8 +141,7 @@ impl EguiRenderer {
                         delta.clone(),
                         |image_data| {
                             memory_allocator
-                                .create_texture_image(
-                                    &[graphics_queue.clone()],
+                                .create_egui_texture_image(
                                     &egui_cmd_pool,
                                     image_data,
                                     false,
@@ -178,7 +176,6 @@ impl EguiRenderer {
                 );
             }
         }
-        debug!("9");
         let cmd = egui_cmd_pool.single_time_command()?;
         let _ = texture_informations.values().map(|tex_data| {
             image_transition(

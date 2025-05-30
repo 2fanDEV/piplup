@@ -27,6 +27,14 @@ pub struct FrameData {
     pub frame_resources: FrameResources
 }
 
+impl FrameResources {
+    pub fn enqueue_destroy_pools(&mut self) {
+      self.deletion_queue.enqueue(FType::TASK(Box::new(DestroyDescriptorPools {
+             allocator: self.descriptor_allocator.clone()
+         })));
+    }
+}
+
 impl FrameData {
     pub fn new(
         device: Arc<VkDevice>,
@@ -39,7 +47,7 @@ impl FrameData {
                     device.clone(),
                     16,
                     vec![PoolSizeRatio::new(
-                        DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        DescriptorType::UNIFORM_BUFFER,
                         1.0,
                     )],
                 ));

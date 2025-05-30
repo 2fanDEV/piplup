@@ -12,7 +12,7 @@ use ash::{
         self, AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
         ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DescriptorType,
-        DynamicState, Extent2D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout,
+        DynamicState, Extent2D, Extent3D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout,
         ImageUsageFlags, IndexType, MemoryPropertyFlags, Offset2D, PipelineBindPoint,
         PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
         RenderPassBeginInfo, SampleCountFlags, Sampler, Semaphore, ShaderStageFlags, SubmitInfo,
@@ -20,9 +20,9 @@ use ash::{
     },
     Device,
 };
-use egui::frame;
+use egui::{frame, ImageData};
 use log::debug;
-use nalgebra::Matrix4;
+use nalgebra::{Matrix4, Vector4};
 use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
@@ -144,11 +144,20 @@ impl Renderer {
         let mut alloc_info =
             AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device);
         alloc_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
-        let memory_allocator = Arc::new(MemoryAllocator::new(vk_device.clone(), alloc_info));
+        let memory_allocator = Arc::new(MemoryAllocator::new(
+            vk_device.clone(),
+            &[graphics_queue.clone()],
+            alloc_info,
+        ));
         #[allow(unused_mut)]
         let mut main_deletion_queue =
             DeletionQueue::new(vk_device.clone(), memory_allocator.clone());
         let draw_image = memory_allocator.create_image(
+            Extent3D {
+                width: extent.width,
+                height: extent.height,
+                depth: 1,
+            },
             swapchain.clone(),
             Format::R16G16B16A16_SFLOAT,
             None,
@@ -167,6 +176,11 @@ impl Renderer {
         })));
         let mut framebuffers: HashMap<IDENTIFIER, Vec<VkFrameBuffer>> = HashMap::new();
         let depth_image = memory_allocator.create_image(
+            Extent3D {
+                width: extent.width,
+                height: extent.height,
+                depth: 1,
+            },
             swapchain.clone(),
             Format::D32_SFLOAT,
             None,
@@ -244,6 +258,22 @@ impl Renderer {
         let scissors = vec![Rect2D::default()
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
+
+        let white_vec = Vector4::new(1, 1, 1, 1).as_ptr() as u32;
+        let white_image = memory_allocator.create_image_with_data(
+            white_vec,
+            Extent3D {
+                width: 1,
+                height: 1,
+                depth: 1,
+            },
+            swapchain.clone(),
+            Format::R8G8B8A8_UNORM,
+            ImageUsageFlags::SAMPLED,
+            ImageAspectFlags::COLOR,
+            &command_pool,
+            false,
+        );
 
         let gltf_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
@@ -522,7 +552,6 @@ impl Renderer {
                 draw_image,
                 graphics_queue,
             )?;
-
             device.cmd_end_render_pass(cmd);
             image_transition(
                 device.clone(),
@@ -573,10 +602,11 @@ impl Renderer {
         graphics_queue: &Arc<VkQueue>,
     ) -> Result<()> {
         unsafe {
+            let scene_data_size = size_of::<SceneData>();
             let gpu_scene_data_buffer = memory_allocator.allocate_single_buffer(
-                size_of::<SceneData>() as u64,
+                scene_data_size as u64,
                 &[graphics_queue.clone()],
-                BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 vk_mem::MemoryUsage::CpuToGpu,
                 MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
             )?;
@@ -598,13 +628,12 @@ impl Renderer {
             let descriptor_write = frame_resources
                 .descriptor_allocator
                 .borrow_mut()
-                .write_image_descriptors(
-                    &draw_image.image_details.image_view,
+                .write_buffer_descriptors(
+                    &gpu_scene_data_buffer,
+                    scene_data_size as u64,
                     ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
                     DescriptorType::UNIFORM_BUFFER,
-                    None,
-                )
-                .unwrap();
+                )?;
             device.cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, **gltf_pipeline);
             device.cmd_set_scissor(cmd, 0, &[*render_area]);
             device.cmd_set_viewport(cmd, 0, viewports);
