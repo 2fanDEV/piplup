@@ -80,7 +80,6 @@ impl MemoryAllocator {
     pub fn create_image(
         &self,
         extent: Extent3D,
-        swapchain: Arc<KHRSwapchain>,
         format: Format,
         initial_layout: Option<ImageLayout>,
         flags: ImageUsageFlags,
@@ -107,8 +106,7 @@ impl MemoryAllocator {
 
         let image_view_create_info = image_view_create_info(image, format, aspect_flags);
         let image_view = unsafe {
-            swapchain
-                .device
+            self.device
                 .create_image_view(&image_view_create_info, None)
                 .unwrap()
         };
@@ -123,9 +121,8 @@ impl MemoryAllocator {
 
     pub fn create_image_with_data(
         &self,
-        data: u32,
+        data: &[u32],
         extent: Extent3D,
-        swapchain: Arc<KHRSwapchain>,
         format: Format,
         usage: ImageUsageFlags,
         aspect_flags: ImageAspectFlags,
@@ -133,11 +130,10 @@ impl MemoryAllocator {
         mipmapped: bool,
     ) -> Result<AllocationUnit, Error> {
         let data_size: u64 = (extent.depth * extent.width * extent.height * 4) as u64;
-        let staging_buffer_unit = self.staging_buffer(data_size, &[data], &self.queues)?;
+        let staging_buffer_unit = self.staging_buffer(data_size, data, &self.queues)?;
         let staging_buffer = staging_buffer_unit.unit.get_copied::<VkBuffer>();
         let image_unit = self.create_image(
             extent,
-            swapchain,
             format,
             None,
             usage | ImageUsageFlags::TRANSFER_SRC | ImageUsageFlags::TRANSFER_DST,
@@ -155,17 +151,27 @@ impl MemoryAllocator {
             ImageLayout::UNDEFINED,
             ImageLayout::TRANSFER_DST_OPTIMAL,
         );
-        VkBuffer::copy_buffer_to_image(*staging_buffer, image.image_details.image, extent, self.queues[0].clone(), command_pool).unwrap();
+        command_pool.end_single_time_command(self.queues[0].clone(), cmd_buffer);
+
+        VkBuffer::copy_buffer_to_image(
+            *staging_buffer,
+            image.image_details.image,
+            extent,
+            self.queues[0].clone(),
+            command_pool,
+        )
+        .unwrap();
+
+        let cmd = command_pool.single_time_command().unwrap();
         image_transition(
             self.device.clone(),
-            cmd_buffer,
+            cmd,
             self.queues[0].queue_family_index,
             image.image_details.image,
             ImageLayout::TRANSFER_DST_OPTIMAL,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
-        command_pool.end_single_time_command(self.queues[0].clone(), cmd_buffer);
-
+        command_pool.end_single_time_command(self.queues[0].clone(), cmd);
         Ok(AllocationUnit {
             unit: image_unit.unit,
             allocation: image_unit.allocation,
@@ -197,34 +203,30 @@ impl MemoryAllocator {
             .height(image_data.height() as u32)
             .width(image_data.width() as u32)
             .depth(1);
-        let image_info = image_create_info(
-            format,
-            ImageUsageFlags::TRANSFER_DST
-                | ImageUsageFlags::COLOR_ATTACHMENT
-                | ImageUsageFlags::SAMPLED,
-            extent,
-            Some(ImageLayout::UNDEFINED),
-            mipmapped,
-        );
-        let create_info = Self::allocation_create_info(
-            AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_RANDOM,
-            MemoryPropertyFlags::DEVICE_LOCAL,
-            None,
-            MemoryUsage::Auto,
-            None,
-        );
-        let (image, allocation) = unsafe {
-            self.allocator
-                .create_image(&image_info, &create_info)
-                .unwrap()
-        };
+ 
+        let image = self
+            .create_image(
+                extent,
+                format,
+                Some(ImageLayout::UNDEFINED),
+                ImageUsageFlags::TRANSFER_SRC
+                    | ImageUsageFlags::COLOR_ATTACHMENT
+                    | ImageUsageFlags::SAMPLED,
+                ImageAspectFlags::COLOR,
+                false,
+            )
+            .unwrap();
 
         let single_time_command = command_pool.single_time_command().unwrap();
         image_transition(
             command_pool.device.clone(),
             single_time_command,
             self.queues[0].queue_family_index,
-            image,
+            image
+                .unit
+                .get_copied::<AllocatedImage>()
+                .image_details
+                .image,
             ImageLayout::UNDEFINED,
             ImageLayout::TRANSFER_DST_OPTIMAL,
         );
@@ -232,7 +234,11 @@ impl MemoryAllocator {
 
         VkBuffer::copy_buffer_to_image(
             *staging_buffer.unit.get_copied::<VkBuffer>(),
-            image,
+            image
+                .unit
+                .get_copied::<AllocatedImage>()
+                .image_details
+                .image,
             extent,
             self.queues[0].clone(),
             command_pool,
@@ -244,12 +250,24 @@ impl MemoryAllocator {
             command_pool.device.clone(),
             single_time_command,
             self.queues[0].queue_family_index,
-            image,
+            image
+                .unit
+                .get_copied::<AllocatedImage>()
+                .image_details
+                .image,
             ImageLayout::TRANSFER_DST_OPTIMAL,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         );
         command_pool.end_single_time_command(self.queues[0].clone(), single_time_command);
-        let image_view_create_info = image_view_create_info(image, format, ImageAspectFlags::COLOR);
+        let image_view_create_info = image_view_create_info(
+            image
+                .unit
+                .get_copied::<AllocatedImage>()
+                .image_details
+                .image,
+            format,
+            ImageAspectFlags::COLOR,
+        );
         let image_view = unsafe {
             self.device
                 .create_image_view(&image_view_create_info, None)
@@ -257,11 +275,18 @@ impl MemoryAllocator {
         };
         Ok(AllocationUnit {
             unit: AllocationUnitType::Image(AllocatedImage {
-                image_details: ImageDetails { image, image_view },
+                image_details: ImageDetails {
+                    image: image
+                        .unit
+                        .get_copied::<AllocatedImage>()
+                        .image_details
+                        .image,
+                    image_view,
+                },
                 extent,
                 image_format: format,
             }),
-            allocation,
+            allocation: image.allocation,
         })
     }
 

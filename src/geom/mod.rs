@@ -1,14 +1,16 @@
-use ash::vk::{DeviceAddress, Extent2D, VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::vk::{
+    DeviceAddress, Extent2D, VertexInputAttributeDescription, VertexInputBindingDescription,
+};
 use nalgebra::{Matrix4, Perspective3, Vector3};
 use push_constants::PushConstant;
 use winit::window::Window;
 
+pub mod assets;
 pub mod mesh;
 pub mod push_constants;
+pub mod scene;
 pub mod vertex_2d;
 pub mod vertex_3d;
-pub mod assets;
-pub mod scene; 
 
 pub trait VertexAttributes {
     fn get_binding_description() -> Vec<VertexInputBindingDescription>;
@@ -23,7 +25,7 @@ pub fn egui_push_constant(window: &Window) -> Vec<u8> {
     let sx = 2.0 / logical_size.width;
     let sy = 2.0 / logical_size.height;
     let tx = -1.0;
-    let ty = -1.0;     
+    let ty = -1.0;
 
     let push_constant = PushConstant::new(
         Matrix4::new(
@@ -40,7 +42,14 @@ pub fn egui_push_constant(window: &Window) -> Vec<u8> {
 pub fn triangle_push_constant(buffer_address: DeviceAddress, extent: Extent2D) -> Vec<u8> {
     let (height, width) = (extent.height, extent.width);
     let view = Matrix4::<f32>::new_translation(&Vector3::new(0.0, 0.0, -2.0));
-        let proj = Perspective3::new(90.0_f32.to_radians(), width as f32/height as f32,  0.1, 1000.0).to_homogeneous();
+    let mut proj = Perspective3::new(
+        70.0_f32.to_radians(),
+        width as f32 / height as f32,
+        0.1,
+        1000.0,
+    )
+    .to_homogeneous();
+    proj[1] = proj[1] *  -1.0;
     let wm = proj * view;
     let push_constant = PushConstant::new(wm, buffer_address);
     push_constant.raw_data()

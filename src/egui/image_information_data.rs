@@ -20,7 +20,7 @@ impl TextureInformationData {
         descriptor_creator: D
     ) -> Self
     where
-        T: FnOnce(&ImageData) -> AllocatedImage,
+       T: FnOnce(&ImageData) -> AllocatedImage,
         D: FnOnce(&AllocatedImage) -> Result<DescriptorSetDetails, Error>
     {
         let allocated_image = image_creator(&texture_delta_tuple.1.image);

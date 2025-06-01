@@ -236,6 +236,7 @@ impl DescriptorAllocator {
     pub fn write_image_descriptors(
         &mut self,
         image_view: &ImageView,
+        image_layout: &ImageLayout,
         shader_stage: ShaderStageFlags,
         descriptor_type: DescriptorType,
         sampler: Option<VkSampler>,
@@ -254,7 +255,7 @@ impl DescriptorAllocator {
             0,
             *image_view,
             sampler,
-            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            *image_layout,
             descriptor_type,
         );
         writer.update_set(self.device.clone(), descriptor_set);

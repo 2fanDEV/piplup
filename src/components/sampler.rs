@@ -22,6 +22,17 @@ impl Deref for VkSampler {
 }
 
 impl VkSampler {
+    pub fn with_filter(device: Arc<VkDevice>, min_filter: Filter, mag_filter: Filter) -> VkSampler {
+        let create_info = SamplerCreateInfo::default()
+            .mag_filter(mag_filter)
+            .min_filter(min_filter);
+
+        VkSampler {
+            sampler: unsafe { device.create_sampler(&create_info, None).unwrap() },
+            _device: device,
+        }
+    }
+
     pub fn get_font_sampler(device: Arc<VkDevice>) -> VkSampler {
         let properties = unsafe {
             device
@@ -52,7 +63,7 @@ impl VkSampler {
     }
 
     pub fn get_texture_sampler(device: Arc<VkDevice>) -> VkSampler {
-       let properties = unsafe {
+        let properties = unsafe {
             device
                 .instance
                 .get_physical_device_properties(device.physical_device)

@@ -1,11 +1,12 @@
-use std::{fmt::Display, path::Path, sync::Arc, usize};
+use std::{fmt::Display, ops::DerefMut, path::Path, sync::Arc, usize};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{Rect2D, Viewport};
-use nalgebra::{Vector3, Vector4};
+use nalgebra::{Vector2, Vector3, Vector4};
 
 use crate::components::{
-    allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator, queue::VkQueue
+    allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator,
+    queue::VkQueue,
 };
 
 use super::{
@@ -83,12 +84,12 @@ impl<T: VertexAttributes> MeshAsset<T> {
                 let uvs = reader
                     .read_tex_coords(0)
                     .ok_or(anyhow!("There are uv"))?
-                    .into_u8()
+                    .into_f32()
                     .collect::<Vec<_>>();
                 let colors = match reader.read_colors(0) {
                     Some(colors) => colors.into_rgba_f32().collect::<Vec<_>>(),
                     None => normals
-                       .iter()
+                        .iter()
                         .map(|normal| [normal[0], normal[1], normal[2], 1.0])
                         .collect::<Vec<_>>(),
                 };
@@ -101,13 +102,12 @@ impl<T: VertexAttributes> MeshAsset<T> {
                     let color_arr = colors[idx];
                     let color =
                         Vector4::<f32>::new(color_arr[0], color_arr[1], color_arr[2], color_arr[3]);
-                    vertices.push(Vertex3D {
+                    vertices.push(Vertex3D::new(
                         pos,
-                        uv_x: uv_arr[0] as f32,
+                        Vector2::new(uv_arr[0] as f32, uv_arr[1] as f32),
                         normal,
-                        uv_y: uv_arr[1] as f32,
                         color,
-                    });
+                    ));
                 }
 
                 let mesh_buffer = MeshBuffers::new(
@@ -128,7 +128,9 @@ impl<T: VertexAttributes> MeshAsset<T> {
                                 memory_property_flags,
                                 &command_pool,
                             )
-                            .unwrap().unit.get_copied::<VkBuffer>()
+                            .unwrap()
+                            .unit
+                            .get_copied::<VkBuffer>()
                     },
                     |buffer_elements, buffer_usage, memory_usage, memory_property_flags| {
                         memory_allocator
@@ -141,7 +143,8 @@ impl<T: VertexAttributes> MeshAsset<T> {
                                 &command_pool,
                             )
                             .unwrap()
-                            .unit.get_copied::<VkBuffer>()
+                            .unit
+                            .get_copied::<VkBuffer>()
                     },
                 )?;
 
@@ -159,8 +162,6 @@ impl<T: VertexAttributes> MeshAsset<T> {
 
 #[cfg(test)]
 mod tests {
-    
-    
 
     #[test]
     fn load_gltf_meshes() {

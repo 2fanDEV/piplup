@@ -166,6 +166,7 @@ impl EguiRenderer {
                             Ok(egui_descriptor_allocator
                                 .write_image_descriptors(
                                     &allocated_image.image_details.image_view,
+                                    &ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                                     ShaderStageFlags::FRAGMENT,
                                     DescriptorType::COMBINED_IMAGE_SAMPLER,
                                     sampler,
@@ -366,7 +367,6 @@ impl EguiRenderer {
                     float32: [0.0, 0.0, 0.0, 1.0],
                 },
             }];
-
             self.device.cmd_begin_render_pass(
                 command_buffer,
                 &RenderPassBeginInfo::default()
@@ -430,6 +430,7 @@ impl EguiRenderer {
                     0,
                 );
             }
+            debug!("X");
             self.device.cmd_end_render_pass(command_buffer);
             self.device.end_command_buffer(command_buffer)?;
         }

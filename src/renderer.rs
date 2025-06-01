@@ -12,21 +12,36 @@ use ash::{
         self, AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
         ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DescriptorType,
-        DynamicState, Extent2D, Extent3D, Fence, Format, FrontFace, ImageAspectFlags, ImageLayout,
-        ImageUsageFlags, IndexType, MemoryPropertyFlags, Offset2D, PipelineBindPoint,
-        PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D,
-        RenderPassBeginInfo, SampleCountFlags, Sampler, Semaphore, ShaderStageFlags, SubmitInfo,
-        SubpassContents, Viewport,
+        DynamicState, Extent2D, Extent3D, Fence, Filter, Format, FrontFace, ImageAspectFlags,
+        ImageLayout, ImageUsageFlags, IndexType, MemoryPropertyFlags, Offset2D, PipelineBindPoint,
+        PipelineLayout, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue,
+        Rect2D, RenderPassBeginInfo, SampleCountFlags, Sampler, Semaphore, ShaderStageFlags,
+        SubmitInfo, SubpassContents, Viewport,
     },
     Device,
 };
 use egui::{frame, ImageData};
 use log::debug;
-use nalgebra::{Matrix4, Vector4};
+use nalgebra::{Matrix4, Vector3, Vector4};
 use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
+
+pub trait PackUnorm {
+    fn pack_unorm4x8(&self) -> u32;
+}
+
+impl PackUnorm for Vector4<f32> {
+    fn pack_unorm4x8(&self) -> u32 {
+        let x = (self.x.clamp(0.0, 1.0) * 255.0).round() as u32;
+        let y = (self.y.clamp(0.0, 1.0) * 255.0).round() as u32;
+        let z = (self.z.clamp(0.0, 1.0) * 255.0).round() as u32;
+        let w = (self.w.clamp(0.0, 1.0) * 255.0).round() as u32;
+
+        (w << 24) | (z << 16) | (y << 8) | x
+    }
+}
 
 use crate::{
     components::{
@@ -73,6 +88,7 @@ pub struct Renderer {
     memory_allocator: Arc<MemoryAllocator>,
     draw_image: AllocatedImage,
     depth_image: AllocatedImage,
+    single_image_descriptor: DescriptorSetDetails,
     gltf_pipeline: VkPipeline,
     gltf_buffers: Vec<MeshAsset<Vertex3D>>,
     viewports: Vec<Viewport>,
@@ -86,6 +102,7 @@ pub struct Renderer {
     extent: Extent2D,
     command_pool: VkCommandPool,
     main_deletion_queue: DeletionQueue,
+    pub checkboard_image: AllocatedImage,
     pub egui_renderer: EguiRenderer,
 }
 
@@ -139,7 +156,7 @@ impl Renderer {
             window,
             [graphics_queue.clone(), presentation_queue.clone()],
         )?);
-
+        let command_pool = VkCommandPool::new(graphics_queue.clone());
         let extent = swapchain.details.clone().choose_swapchain_extent(window);
         let mut alloc_info =
             AllocatorCreateInfo::new(&vk_instance, &vk_device, vk_device.physical_device);
@@ -158,7 +175,6 @@ impl Renderer {
                 height: extent.height,
                 depth: 1,
             },
-            swapchain.clone(),
             Format::R16G16B16A16_SFLOAT,
             None,
             ImageUsageFlags::STORAGE | ImageUsageFlags::COLOR_ATTACHMENT,
@@ -181,7 +197,6 @@ impl Renderer {
                 height: extent.height,
                 depth: 1,
             },
-            swapchain.clone(),
             Format::D32_SFLOAT,
             None,
             ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
@@ -197,6 +212,106 @@ impl Renderer {
         main_deletion_queue.enqueue(FType::DEVICE(Box::new(move |device| unsafe {
             device.destroy_image_view(depth_image.image_details.image_view, None)
         })));
+
+        let white = Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0).pack_unorm4x8();
+        let white_image = memory_allocator
+            .create_image_with_data(
+                &[white],
+                Extent3D {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                Format::R8G8B8A8_UNORM,
+                ImageUsageFlags::SAMPLED,
+                ImageAspectFlags::COLOR,
+                &command_pool,
+                false,
+            )
+            .unwrap();
+
+        let grey = Vector4::<f32>::new(0.66, 0.66, 0.66, 1.0).pack_unorm4x8();
+        let grey_image = memory_allocator
+            .create_image_with_data(
+                &[grey],
+                Extent3D {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                Format::R8G8B8A8_UNORM,
+                ImageUsageFlags::SAMPLED,
+                ImageAspectFlags::COLOR,
+                &command_pool,
+                false,
+            )
+            .unwrap();
+
+        let black = Vector4::new(0.0, 0.0, 0.0, 0.0).pack_unorm4x8();
+        let black_image = memory_allocator
+            .create_image_with_data(
+                &[black],
+                Extent3D {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                Format::R8G8B8A8_UNORM,
+                ImageUsageFlags::SAMPLED,
+                ImageAspectFlags::COLOR,
+                &command_pool,
+                false,
+            )
+            .unwrap();
+
+        let magenta = Vector4::new(1.0, 0.0, 1.0, 1.0).pack_unorm4x8();
+        let magenta_image = memory_allocator
+            .create_image_with_data(
+                &[magenta],
+                Extent3D {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                Format::R8G8B8A8_UNORM,
+                ImageUsageFlags::SAMPLED,
+                ImageAspectFlags::COLOR,
+                &command_pool,
+                false,
+            )
+            .unwrap();
+
+        let mut pixels = [0 as u32; 16 * 16];
+        for i in 0..16 {
+            for j in 0..16 {
+                pixels[j * 16 + i] = if ((i % 2) ^ (j % 2)).eq(&1) {
+                    magenta
+                } else {
+                    black
+                }
+            }
+        }
+        debug!("PIXELS={pixels:?}");
+        let error_checkboard = memory_allocator.create_image_with_data(
+            &pixels,
+            Extent3D {
+                width: 16,
+                height: 16,
+                depth: 1,
+            },
+            Format::R8G8B8A8_UNORM,
+            ImageUsageFlags::SAMPLED,
+            ImageAspectFlags::COLOR,
+            &command_pool,
+            false,
+        )?;
+
+        let default_nearest_sampler =
+            VkSampler::with_filter(vk_device.clone(), Filter::NEAREST, Filter::NEAREST);
+
+        let default_linear_sampler =
+            VkSampler::with_filter(vk_device.clone(), Filter::LINEAR, Filter::LINEAR);
+
         let render_pass = Arc::new(VkRenderPass::new(
             vk_device.clone(),
             swapchain.details.clone().choose_swapchain_format().format,
@@ -237,7 +352,6 @@ impl Renderer {
         let swapchain_image_details = swapchain.create_image_details()?;
         framebuffers.insert(IDENTIFIER::DRAW, vec![draw_framebuffers]);
         let mut frame_data: Vec<FrameData> = Vec::new();
-        let command_pool = VkCommandPool::new(graphics_queue.clone());
         for _i in 0..MAX_FRAMES {
             frame_data.push(FrameData::new(
                 vk_device.clone(),
@@ -259,27 +373,23 @@ impl Renderer {
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
 
-        let white_vec = Vector4::new(1, 1, 1, 1).as_ptr() as u32;
-        let white_image = memory_allocator.create_image_with_data(
-            white_vec,
-            Extent3D {
-                width: 1,
-                height: 1,
-                depth: 1,
-            },
-            swapchain.clone(),
-            Format::R8G8B8A8_UNORM,
-            ImageUsageFlags::SAMPLED,
-            ImageAspectFlags::COLOR,
-            &command_pool,
-            false,
-        );
+        let single_image_descriptor = descriptor_allocator.write_image_descriptors(
+            &error_checkboard
+                .unit
+                .get_copied::<AllocatedImage>()
+                .image_details
+                .image_view,
+            &ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ShaderStageFlags::FRAGMENT,
+            DescriptorType::COMBINED_IMAGE_SAMPLER,
+            Some(default_nearest_sampler),
+        )?;
 
         let gltf_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
             &[DynamicState::SCISSOR, DynamicState::VIEWPORT],
             PrimitiveTopology::TRIANGLE_LIST,
-            ShaderStageFlags::VERTEX,
+            ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
             &[
                 ShaderInformation::new(
                     "/Users/zapzap/Projects/piplup/shaders/3_pos_vertex.spv".to_owned(),
@@ -287,16 +397,16 @@ impl Renderer {
                     "main".to_string(),
                 ),
                 ShaderInformation::new(
-                    "/Users/zapzap/Projects/piplup/shaders/triangle_fragment.spv".to_owned(),
+                    "/Users/zapzap/Projects/piplup/shaders/tex_image.spv".to_owned(),
                     ShaderStageFlags::FRAGMENT,
                     "main".to_string(),
                 ),
             ],
-            None,
+            Some(&[single_image_descriptor.layout]),
             &extent,
             Some(PushConstant::<Matrix4<f32>>::default()),
-            vec![],
-            vec![],
+            [].to_vec(),
+            [].to_vec(),
             &[create_color_blending_attachment_state(
                 ColorComponentFlags::R
                     | ColorComponentFlags::G
@@ -377,6 +487,7 @@ impl Renderer {
             render_pass,
             draw_image,
             depth_image,
+            single_image_descriptor,
             swapchain_image_details,
             framebuffers,
             memory_allocator,
@@ -389,6 +500,7 @@ impl Renderer {
             viewports,
             scissors,
             extent,
+            checkboard_image: error_checkboard.unit.get_copied::<AllocatedImage>(),
             egui_renderer,
         })
     }
@@ -443,6 +555,7 @@ impl Renderer {
                     &self.graphics_queue.clone(),
                     &self.render_area,
                     &self.viewports,
+                    &self.single_image_descriptor,
                     &self.gltf_pipeline,
                     &self.gltf_buffers,
                     &self.memory_allocator,
@@ -501,6 +614,7 @@ impl Renderer {
         graphics_queue: &Arc<VkQueue>,
         render_area: &Rect2D,
         viewports: &[Viewport],
+        descriptor_set: &DescriptorSetDetails,
         gltf_pipeline: &VkPipeline,
         gltf_buffers: &[MeshAsset<Vertex3D>],
         memory_allocator: &Arc<MemoryAllocator>,
@@ -544,6 +658,7 @@ impl Renderer {
                 frame_resources,
                 gltf_buffers,
                 memory_allocator,
+                descriptor_set,
                 device,
                 extent,
                 viewports,
@@ -593,6 +708,7 @@ impl Renderer {
         frame_resources: &mut FrameResources,
         gltf_buffers: &[MeshAsset<Vertex3D>],
         memory_allocator: &Arc<MemoryAllocator>,
+        descriptor_set: &DescriptorSetDetails,
         device: &Arc<VkDevice>,
         extent: &Extent2D,
         viewports: &[Viewport],
@@ -623,7 +739,6 @@ impl Renderer {
             //write buffer with self.scene data
             // HERE
             //
-
             // Descriptors
             let descriptor_write = frame_resources
                 .descriptor_allocator
@@ -635,6 +750,15 @@ impl Renderer {
                     DescriptorType::UNIFORM_BUFFER,
                 )?;
             device.cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, **gltf_pipeline);
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                PipelineBindPoint::GRAPHICS,
+                gltf_pipeline.pipeline_layout,
+                0,
+                &[**descriptor_set],
+                &[],
+            );
+
             device.cmd_set_scissor(cmd, 0, &[*render_area]);
             device.cmd_set_viewport(cmd, 0, viewports);
 
@@ -643,13 +767,11 @@ impl Renderer {
             device.cmd_push_constants(
                 cmd,
                 gltf_pipeline.pipeline_layout,
-                ShaderStageFlags::VERTEX,
+                ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
                 0,
                 &push_constants_data,
             );
 
-            /*   device
-            .cmd_bind_vertex_buffers(cmd, 0, &[buffer.vertex_buffer.buffer], &[0]); */
             device.cmd_bind_index_buffer(
                 cmd,
                 gltf_buffers[2].mesh_buffers.index_buffer.buffer,
