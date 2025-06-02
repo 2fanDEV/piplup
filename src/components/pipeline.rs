@@ -12,10 +12,7 @@ use ash::vk::{
     PrimitiveTopology, PushConstantRange, Rect2D, SampleCountFlags, ShaderStageFlags,
     VertexInputAttributeDescription, VertexInputBindingDescription, Viewport,
 };
-use ash::vk::{
-    ColorComponentFlags, CompareOp,
-    PipelineDepthStencilStateCreateInfo,
-};
+use ash::vk::{ColorComponentFlags, CompareOp, PipelineDepthStencilStateCreateInfo};
 
 use super::{device::VkDevice, render_pass::VkRenderPass, util::load_shader_module};
 
@@ -99,6 +96,7 @@ impl VkPipeline {
         rasterizer_info: PipelineRasterizationStateCreateInfo,
         multisampling_info: PipelineMultisampleStateCreateInfo,
         render_pass: Arc<VkRenderPass>,
+        enable_depth_test: bool,
     ) -> Result<VkPipeline, Error> {
         let dynamic_states_create_info = dynamic_states(dynamic_state_list);
         let mut pipeline_stage_create_info: Vec<PipelineShaderStageCreateInfo> = Vec::new();
@@ -146,7 +144,7 @@ impl VkPipeline {
         };
         let color_blending_state_info = create_color_blending_state(color_blending_attachments);
         let depth_stencil_state_info = create_depth_stencil_state();
-        let graphics_pipeline_create_info = GraphicsPipelineCreateInfo::default()
+        let mut graphics_pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .stages(&pipeline_stage_create_info)
             .dynamic_state(&dynamic_states_create_info)
             .input_assembly_state(&input_assembly_state)
@@ -159,8 +157,12 @@ impl VkPipeline {
             .subpass(0)
             .render_pass(**render_pass)
             .base_pipeline_index(-1)
-            .base_pipeline_handle(Pipeline::null())
-            .depth_stencil_state(&depth_stencil_state_info);
+            .base_pipeline_handle(Pipeline::null());
+
+        if enable_depth_test {
+            graphics_pipeline_create_info =
+                graphics_pipeline_create_info.depth_stencil_state(&depth_stencil_state_info);
+        }
 
         let pipeline = unsafe {
             &device

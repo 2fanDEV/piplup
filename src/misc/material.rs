@@ -108,6 +108,7 @@ impl MaterialMetallicRoughness {
             create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
             PipelineMultisampleStateCreateInfo::default(),
             render_pass.clone(),
+            false
         )?;
 
         let transparent_pipeline = VkPipeline::create_new_pipeline(
@@ -125,7 +126,7 @@ impl MaterialMetallicRoughness {
             create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
             PipelineMultisampleStateCreateInfo::default(),
             render_pass.clone(),
-            // TODO add enable depth test and disable above
+            true
         )?;
 
         Ok(Self { opaque_pipeline:  MaterialPipeline {
@@ -146,6 +147,6 @@ impl MaterialMetallicRoughness {
                 pipeline = &self.transparent_pipeline;
             }
 
-//            material_set = descriptor_allocator.write_image_descriptors(image_view, image_layout, shader_stage, descriptor_type, sampler)
+          //  material_set = descriptor_allocator.write_image_descriptors(image_view, image_layout, shader_stage, descriptor_type, sampler)
     }
 }

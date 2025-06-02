@@ -239,6 +239,7 @@ impl EguiRenderer {
                 ),
                 create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
                 render_pass.clone(),
+                false
             )?);
         }
         Ok(Self {
