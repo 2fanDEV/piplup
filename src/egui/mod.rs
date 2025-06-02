@@ -210,11 +210,11 @@ impl EguiRenderer {
                     ),
                     shader,
                 ],
-                Some(&[texture_informations
+                Some(&texture_informations
                     .get(&TextureId::Managed(0))
                     .unwrap()
                     .descriptor_set_details
-                    .layout]),
+                    .layout),
                 &extent,
                 Some(Matrix4::<f32>::identity()),
                 Vertex::get_binding_description(),
@@ -403,7 +403,7 @@ impl EguiRenderer {
                                 PipelineBindPoint::GRAPHICS,
                                 self.pipelines[id as usize].pipeline_layout,
                                 0,
-                                &[*texture_information_data.unwrap().descriptor_set_details],
+                                &texture_information_data.unwrap().descriptor_set_details,
                                 &[],
                             );
                         }

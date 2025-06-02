@@ -11,12 +11,13 @@ use ash::{
     vk::{
         self, AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
         ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
-        CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT, DescriptorType,
-        DynamicState, Extent2D, Extent3D, Fence, Filter, Format, FrontFace, ImageAspectFlags,
-        ImageLayout, ImageUsageFlags, IndexType, MemoryPropertyFlags, Offset2D, PipelineBindPoint,
-        PipelineLayout, PipelineStageFlags, PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue,
-        Rect2D, RenderPassBeginInfo, SampleCountFlags, Sampler, Semaphore, ShaderStageFlags,
-        SubmitInfo, SubpassContents, Viewport,
+        CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
+        DescriptorSetLayoutCreateFlags, DescriptorType, DynamicState, Extent2D, Extent3D, Fence,
+        Filter, Format, FrontFace, ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType,
+        MemoryPropertyFlags, Offset2D, PipelineBindPoint, PipelineLayout, PipelineStageFlags,
+        PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo,
+        SampleCountFlags, Sampler, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents,
+        Viewport,
     },
     Device,
 };
@@ -48,7 +49,10 @@ use crate::{
         allocation_types::{AllocatedImage, VkBuffer, VkFrameBuffer, IDENTIFIER},
         command_buffers::{self, VkCommandPool},
         deletion_queue::{self, DeletionQueue, DestroyBufferTask, DestroyImageTask, FType},
-        descriptors::{DescriptorAllocator, DescriptorSetDetails, PoolSizeRatio},
+        descriptors::{
+            DescriptorAllocator, DescriptorLayoutBuilder, DescriptorSetDetails, DescriptorWriter,
+            PoolSizeRatio,
+        },
         device::{self, VkDevice},
         frame_data::{self, FrameData, FrameResources},
         image_util::{copy_image_to_image, image_transition},
@@ -77,7 +81,7 @@ use crate::{
 
 #[allow(unused)]
 pub struct Renderer {
-    instance: Arc<VkInstance>,
+    pub instance: Arc<VkInstance>,
     debug_instance: debug_utils::Instance,
     debugger: DebugUtilsMessengerEXT,
     device: Arc<VkDevice>,
@@ -88,6 +92,9 @@ pub struct Renderer {
     memory_allocator: Arc<MemoryAllocator>,
     draw_image: AllocatedImage,
     depth_image: AllocatedImage,
+    descriptor_allocator: DescriptorAllocator,
+    descriptor_layout_builder: DescriptorLayoutBuilder<'static>,
+    descriptor_writer: DescriptorWriter,
     single_image_descriptor: DescriptorSetDetails,
     gltf_pipeline: VkPipeline,
     gltf_buffers: Vec<MeshAsset<Vertex3D>>,
@@ -372,18 +379,30 @@ impl Renderer {
         let scissors = vec![Rect2D::default()
             .offset(Offset2D::default().x(0).y(0))
             .extent(extent)];
-
-        let single_image_descriptor = descriptor_allocator.write_image_descriptors(
-            &error_checkboard
+        let mut writer = DescriptorWriter::new();
+        let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
+        descriptor_layout_builder.add_binding(0, DescriptorType::COMBINED_IMAGE_SAMPLER);
+        let single_image_layout = descriptor_layout_builder.build(
+            vk_device.clone(),
+            ShaderStageFlags::FRAGMENT,
+            DescriptorSetLayoutCreateFlags::empty(),
+        );
+        descriptor_layout_builder.clear();
+        let single_image_descriptor =
+            descriptor_allocator.allocate(vk_device.clone(), &[single_image_layout]);
+        writer.write_image(
+            0,
+            error_checkboard
                 .unit
                 .get_copied::<AllocatedImage>()
                 .image_details
                 .image_view,
-            &ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            ShaderStageFlags::FRAGMENT,
-            DescriptorType::COMBINED_IMAGE_SAMPLER,
             Some(default_nearest_sampler),
-        )?;
+            ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            DescriptorType::COMBINED_IMAGE_SAMPLER,
+        );
+        writer.update_set(vk_device.clone(), single_image_descriptor[0]);
+        writer.clear();
 
         let gltf_pipeline = VkPipeline::create_new_pipeline(
             vk_device.clone(),
@@ -402,7 +421,7 @@ impl Renderer {
                     "main".to_string(),
                 ),
             ],
-            Some(&[single_image_descriptor.layout]),
+            Some(&single_image_descriptor.layout),
             &extent,
             Some(PushConstant::<Matrix4<f32>>::default()),
             [].to_vec(),
@@ -487,6 +506,9 @@ impl Renderer {
             render_pass,
             draw_image,
             depth_image,
+            descriptor_allocator,
+            descriptor_layout_builder,
+            descriptor_writer: writer,
             single_image_descriptor,
             swapchain_image_details,
             framebuffers,
@@ -755,7 +777,7 @@ impl Renderer {
                 PipelineBindPoint::GRAPHICS,
                 gltf_pipeline.pipeline_layout,
                 0,
-                &[**descriptor_set],
+                descriptor_set,
                 &[],
             );
 

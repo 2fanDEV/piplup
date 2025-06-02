@@ -21,12 +21,12 @@ use super::{allocation_types::VkBuffer, device::VkDevice, sampler::VkSampler};
 
 #[derive(Debug)]
 pub struct DescriptorSetDetails {
-    descriptor_set: DescriptorSet,
-    pub layout: DescriptorSetLayout,
+    descriptor_set: Vec<DescriptorSet>,
+    pub layout: Vec<DescriptorSetLayout>,
 }
 
 impl Deref for DescriptorSetDetails {
-    type Target = DescriptorSet;
+    type Target = Vec<DescriptorSet>;
 
     fn deref(&self) -> &Self::Target {
         &self.descriptor_set
@@ -258,10 +258,10 @@ impl DescriptorAllocator {
             *image_layout,
             descriptor_type,
         );
-        writer.update_set(self.device.clone(), descriptor_set);
+        writer.update_set(self.device.clone(), descriptor_set[0]);
         Ok(DescriptorSetDetails {
-            descriptor_set,
-            layout,
+            descriptor_set: descriptor_set.to_vec(),
+            layout: vec![layout],
         })
     }
 
@@ -283,10 +283,10 @@ impl DescriptorAllocator {
 
         let descriptor_set = self.allocate(self.device.clone(), &[layout]);
         writer.write_buffer(0, *buffer, size, 0, descriptor_type);
-        writer.update_set(self.device.clone(), descriptor_set);
+        writer.update_set(self.device.clone(), descriptor_set[0]);
         Ok(DescriptorSetDetails {
-            descriptor_set: descriptor_set,
-            layout: layout,
+            descriptor_set: descriptor_set.to_vec(),
+            layout: vec![layout],
         })
     }
 
@@ -325,11 +325,11 @@ impl DescriptorAllocator {
         self.full_pools.clear();
     }
 
-    fn allocate(
+    pub fn allocate(
         &mut self,
         device: Arc<VkDevice>,
         layouts: &[DescriptorSetLayout],
-    ) -> DescriptorSet {
+    ) -> DescriptorSetDetails {
         let mut pool_to_use = self.get_pool().unwrap();
         let mut allocate_info = DescriptorSetAllocateInfo::default()
             .descriptor_pool(pool_to_use)
@@ -353,7 +353,11 @@ impl DescriptorAllocator {
                 }
             }
         };
-        descriptor_sets[0]
+        debug!("DESCRIPTOR_SETS:{:?}", descriptor_sets);
+        DescriptorSetDetails {
+            descriptor_set: descriptor_sets,
+                layout: layouts.to_vec()
+        }
     }
 }
 
