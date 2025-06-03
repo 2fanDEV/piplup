@@ -123,6 +123,7 @@ impl VkPipeline {
         let color_blending_attachments = color_attachment;
 
         let mut pipeline_layout_create_info = PipelineLayoutCreateInfo::default();
+
         let mut push_constant_range: Vec<PushConstantRange> = vec![];
         if push_constant_range_type.is_some() {
             push_constant_range.push(
@@ -143,7 +144,11 @@ impl VkPipeline {
                 .unwrap()
         };
         let color_blending_state_info = create_color_blending_state(color_blending_attachments);
-        let depth_stencil_state_info = create_depth_stencil_state();
+        let depth_stencil_state_info = if enable_depth_test {
+            enable_depth_stencil_state()
+        } else {
+            disable_depth_stencil_state()
+        };
         let mut graphics_pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .stages(&pipeline_stage_create_info)
             .dynamic_state(&dynamic_states_create_info)
@@ -154,15 +159,10 @@ impl VkPipeline {
             .multisample_state(&multisamping_info)
             .rasterization_state(&rasterizer_info)
             .layout(pipeline_layout)
-            .subpass(0)
             .render_pass(**render_pass)
             .base_pipeline_index(-1)
-            .base_pipeline_handle(Pipeline::null());
-
-        if enable_depth_test {
-            graphics_pipeline_create_info =
-                graphics_pipeline_create_info.depth_stencil_state(&depth_stencil_state_info);
-        }
+            .base_pipeline_handle(Pipeline::null())
+            .depth_stencil_state(&depth_stencil_state_info);
 
         let pipeline = unsafe {
             &device
@@ -216,7 +216,20 @@ impl VkPipeline {
     }
 }
 
-fn create_depth_stencil_state<'a>() -> PipelineDepthStencilStateCreateInfo<'a> {
+
+fn disable_depth_stencil_state<'a>() -> PipelineDepthStencilStateCreateInfo<'a> {
+    PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .stencil_test_enable(false)
+        .depth_bounds_test_enable(false)
+        .depth_compare_op(CompareOp::LESS)
+        .min_depth_bounds(0.0)
+        .max_depth_bounds(1.0)
+
+}
+
+fn enable_depth_stencil_state<'a>() -> PipelineDepthStencilStateCreateInfo<'a> {
     PipelineDepthStencilStateCreateInfo::default()
         .depth_test_enable(true)
         .depth_write_enable(true)

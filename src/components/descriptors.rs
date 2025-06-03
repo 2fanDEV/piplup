@@ -243,7 +243,7 @@ impl DescriptorAllocator {
     ) -> Result<DescriptorSetDetails, Error> {
         let mut writer = DescriptorWriter::new();
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
-        descriptor_layout_builder.add_binding(0, descriptor_type);
+        descriptor_layout_builder.add_binding(0, descriptor_type, shader_stage);
         let layout = descriptor_layout_builder.build(
             self.device.clone(),
             shader_stage,
@@ -274,7 +274,7 @@ impl DescriptorAllocator {
     ) -> Result<DescriptorSetDetails, Error> {
         let mut writer = DescriptorWriter::new();
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
-        descriptor_layout_builder.add_binding(0, descriptor_type);
+        descriptor_layout_builder.add_binding(0, descriptor_type, shader_stage);
         let layout = descriptor_layout_builder.build(
             self.device.clone(),
             shader_stage,
@@ -353,7 +353,6 @@ impl DescriptorAllocator {
                 }
             }
         };
-        debug!("DESCRIPTOR_SETS:{:?}", descriptor_sets);
         DescriptorSetDetails {
             descriptor_set: descriptor_sets,
                 layout: layouts.to_vec()
@@ -374,13 +373,15 @@ impl DescriptorLayoutBuilder<'_> {
         }
     }
 
-    pub fn add_binding(&mut self, binding: u32, descriptor_type: DescriptorType) {
+    pub fn add_binding(&mut self, binding: u32, descriptor_type: DescriptorType, shader_stages: ShaderStageFlags) -> &mut Self {
         let descriptor_binding = DescriptorSetLayoutBinding::default()
             .binding(binding)
+            .stage_flags(shader_stages)
             .descriptor_type(descriptor_type)
             .descriptor_count(1);
 
         self.bindings.push(descriptor_binding);
+        self
     }
 
     pub fn clear(&mut self) {

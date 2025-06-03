@@ -389,7 +389,7 @@ impl MemoryAllocator {
         let create_info = AllocationCreateInfo {
             usage: memory_usage,
             required_flags: memory_property_flags,
-            flags: AllocationCreateFlags::MAPPED,
+            flags: AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_RANDOM,
             ..Default::default()
         };
         let (buffer, allocation) = unsafe {

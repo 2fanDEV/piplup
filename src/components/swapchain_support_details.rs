@@ -68,7 +68,6 @@ impl SwapchainSupportDetails {
     }
 
     pub fn choose_swapchain_present_mode(self) -> PresentModeKHR {
-        debug!("{:?}", self.present_modes);
         self.present_modes
             .into_iter()
             .filter(|mode| mode.eq(&PresentModeKHR::FIFO))

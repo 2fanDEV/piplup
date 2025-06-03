@@ -30,7 +30,6 @@ pub fn image_create_info<'a>(
     if mipmapped {
         info = info.mip_levels(extent.width.max(extent.height).ilog2() + 1);
     }
-    debug!("{:?}", info);
     info
 }
 

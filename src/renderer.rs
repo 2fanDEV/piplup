@@ -47,17 +47,17 @@ impl PackUnorm for Vector4<f32> {
 use crate::{
     components::{
         allocation_types::{AllocatedImage, VkBuffer, VkFrameBuffer, IDENTIFIER},
-        command_buffers::{self, VkCommandPool},
-        deletion_queue::{self, DeletionQueue, DestroyBufferTask, DestroyImageTask, FType},
+        command_buffers::VkCommandPool,
+        deletion_queue::{DeletionQueue, DestroyBufferTask, DestroyImageTask, FType},
         descriptors::{
             DescriptorAllocator, DescriptorLayoutBuilder, DescriptorSetDetails, DescriptorWriter,
             PoolSizeRatio,
         },
         device::{self, VkDevice},
-        frame_data::{self, FrameData, FrameResources},
+        frame_data::{FrameData, FrameResources},
         image_util::{copy_image_to_image, image_transition},
         instance::{self, VkInstance},
-        memory_allocator::{AllocationUnit, MemoryAllocator},
+        memory_allocator::MemoryAllocator,
         pipeline::{
             create_color_blending_attachment_state, create_multisampling_state,
             create_rasterizer_state, ShaderInformation, VkPipeline,
@@ -77,6 +77,7 @@ use crate::{
         vertex_3d::Vertex3D,
         VertexAttributes,
     },
+    misc::material::{MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources},
 };
 
 #[allow(unused)]
@@ -298,7 +299,6 @@ impl Renderer {
                 }
             }
         }
-        debug!("PIXELS={pixels:?}");
         let error_checkboard = memory_allocator.create_image_with_data(
             &pixels,
             Extent3D {
@@ -381,7 +381,11 @@ impl Renderer {
             .extent(extent)];
         let mut writer = DescriptorWriter::new();
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
-        descriptor_layout_builder.add_binding(0, DescriptorType::COMBINED_IMAGE_SAMPLER);
+        descriptor_layout_builder.add_binding(
+            0,
+            DescriptorType::COMBINED_IMAGE_SAMPLER,
+            ShaderStageFlags::empty(),
+        );
         let single_image_layout = descriptor_layout_builder.build(
             vk_device.clone(),
             ShaderStageFlags::FRAGMENT,
@@ -442,8 +446,36 @@ impl Renderer {
             create_rasterizer_state(PolygonMode::FILL, CullModeFlags::NONE, FrontFace::CLOCKWISE),
             create_multisampling_state(false, SampleCountFlags::TYPE_1, 1.0, false, false),
             render_pass.clone(),
-            true
+            true,
         )?;
+        let material_metallic_roughness_pipelines = MaterialMetallicRoughness::build_pipelines(
+            vk_device.clone(),
+            &extent,
+            render_pass.clone(),
+        )
+        .unwrap();
+        let material_constants = memory_allocator.create_buffer_with_mapped_memory(
+            &[MaterialConstants::new(
+                Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
+                Vector4::<f32>::new(1.0, 0.5, 0.0, 0.0),
+            )],
+            &[graphics_queue.clone()],
+            BufferUsageFlags::UNIFORM_BUFFER,
+            MemoryUsage::Auto,
+            MemoryPropertyFlags::HOST_COHERENT | MemoryPropertyFlags::HOST_VISIBLE,
+            &command_pool.clone(),
+        )?;
+
+        let material_resources = MaterialResources {
+            color_image: white_image.unit.get_copied::<AllocatedImage>(),
+            color_sampler: default_linear_sampler.clone(),
+            metal_rough_image: white_image.unit.get_copied::<AllocatedImage>(),
+            metal_rough_sampler: default_linear_sampler,
+            data_buffer: material_constants.unit.get_copied::<VkBuffer>(),
+            buffer_offset: 0,
+        };
+
+        material_metallic_roughness_pipelines.write_material(vk_device.clone(), MaterialPass::GLTF_PBR_MAIN_COLOR, material_resources, &mut descriptor_allocator);
         let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
@@ -452,7 +484,6 @@ impl Renderer {
             &[graphics_queue.clone()],
             command_pool.clone(),
         )?;
-        debug!("1");
         /*  let mesh_triangle_buffers = vec![MeshBuffers::new(
             mesh,
             |elements, usage, mem_usage, mem_flags| {
@@ -612,7 +643,6 @@ impl Renderer {
                 &self.frame_data[frame_idx].render_semaphore,
                 &image_indices,
             );
-            debug!("self.frame_idx={:?}", self.frame_idx);
             self.frame_data[self.frame_idx]
                 .frame_resources
                 .deletion_queue
@@ -746,9 +776,10 @@ impl Renderer {
                 scene_data_size as u64,
                 &[graphics_queue.clone()],
                 BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-                vk_mem::MemoryUsage::CpuToGpu,
+                vk_mem::MemoryUsage::Auto,
                 MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
             )?;
+
             let scene_data_allocation = gpu_scene_data_buffer.allocation;
             let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
 

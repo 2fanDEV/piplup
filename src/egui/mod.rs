@@ -431,7 +431,6 @@ impl EguiRenderer {
                     0,
                 );
             }
-            debug!("X");
             self.device.cmd_end_render_pass(command_buffer);
             self.device.end_command_buffer(command_buffer)?;
         }
