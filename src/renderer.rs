@@ -77,7 +77,9 @@ use crate::{
         vertex_3d::Vertex3D,
         VertexAttributes,
     },
-    misc::material::{MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources},
+    misc::material::{
+        MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources,
+    },
 };
 
 #[allow(unused)]
@@ -337,10 +339,10 @@ impl Renderer {
         let mut descriptor_allocator = DescriptorAllocator::new(
             vk_device.clone(),
             16,
-            vec![PoolSizeRatio::new(
-                DescriptorType::COMBINED_IMAGE_SAMPLER,
-                1.0,
-            )],
+            vec![
+                PoolSizeRatio::new(DescriptorType::COMBINED_IMAGE_SAMPLER, 1.0),
+                PoolSizeRatio::new(DescriptorType::UNIFORM_BUFFER, 2.0),
+            ],
         );
         let scene_data = SceneData::default();
         /* let scene_descriptor = descriptor_allocator.write_image_descriptors(
@@ -460,7 +462,7 @@ impl Renderer {
                 Vector4::<f32>::new(1.0, 0.5, 0.0, 0.0),
             )],
             &[graphics_queue.clone()],
-            BufferUsageFlags::UNIFORM_BUFFER,
+            BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             MemoryUsage::Auto,
             MemoryPropertyFlags::HOST_COHERENT | MemoryPropertyFlags::HOST_VISIBLE,
             &command_pool.clone(),
@@ -475,7 +477,14 @@ impl Renderer {
             buffer_offset: 0,
         };
 
-        material_metallic_roughness_pipelines.write_material(vk_device.clone(), MaterialPass::GLTF_PBR_MAIN_COLOR, material_resources, &mut descriptor_allocator);
+        let material_instance = material_metallic_roughness_pipelines
+            .write_material(
+                vk_device.clone(),
+                MaterialPass::GLTF_PBR_MAIN_COLOR,
+                material_resources,
+                &mut descriptor_allocator,
+            )
+            .unwrap();
         let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
