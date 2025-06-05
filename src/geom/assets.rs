@@ -4,10 +4,10 @@ use anyhow::{anyhow, Result};
 use ash::vk::{Rect2D, Viewport};
 use nalgebra::{Vector2, Vector3, Vector4};
 
-use crate::components::{
+use crate::{components::{
     allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator,
     queue::VkQueue,
-};
+}, misc::material::MaterialInstance};
 
 use super::{
     mesh::{self, MeshBuffers},
@@ -15,10 +15,16 @@ use super::{
     VertexAttributes,
 };
 
+#[derive(Clone, Debug, Default)]
+struct GLTFMaterial {
+    pub data: MaterialInstance
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct GeoSurface {
     pub start_index: u32,
     pub count: usize,
+    pub material: GLTFMaterial
 }
 
 #[derive(Debug)]

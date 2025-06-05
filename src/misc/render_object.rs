@@ -5,15 +5,16 @@ use nalgebra::Matrix4;
 
 use crate::{components::allocation_types::VkBuffer, geom::{assets::MeshAsset, VertexAttributes}};
 
-use super::Renderable;
+use super::{material::MaterialInstance, Renderable};
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RenderObject {
-    start_index: u32,
+    index_count: u32,
     first_index: u32,
-    buffer: VkBuffer, 
+    index_buffer: VkBuffer, 
     transform: Matrix4<f32>,
+    material: MaterialInstance,
     vertex_buffer_address: DeviceAddress
 }
 
@@ -46,16 +47,22 @@ impl Renderable for Node {
 
 pub struct MeshNode<T: VertexAttributes> {
     node: Node,
-    mesh_assets: Vec<Arc<MeshAsset<T>>>,
+    mesh_assets: Arc<MeshAsset<T>>,
 }
 
 impl <T: VertexAttributes> Renderable for MeshNode<T> {
     fn draw(&self, top_matrix: Matrix4<f32>, draw_ctx: &super::DrawContext) {
         let node_matrix = top_matrix * self.node.world_transform;
 
-        for mesh in self.mesh_assets {
-            RenderObject {
+            for surface in self.mesh_assets.surfaces {
+                let render_obj = RenderObject {
+                    index_count: surface.count as u32,
+                    first_index: surface.start_index,
+                    index_buffer: self.mesh_assets.mesh_buffers.index_buffer,
+                    material_instance: surface
+                    transform: node_matrix,
 
+                }
             }
     }
 }

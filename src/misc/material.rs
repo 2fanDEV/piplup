@@ -25,6 +25,7 @@ use crate::{
     geom::push_constants::PushConstant,
 };
 
+#[derive(Clone, Debug, Default)]
 pub struct MaterialPipeline {
     pub pipeline: VkPipeline,
     pub pipeline_layout: PipelineLayout,
@@ -60,6 +61,7 @@ pub struct MaterialResources {
     pub buffer_offset: u64,
 }
 
+#[derive(Default, Debug, Clone)]
 pub struct MaterialInstance {
     pipeline: MaterialPipeline,
     material_set: DescriptorSetDetails,
@@ -67,8 +69,9 @@ pub struct MaterialInstance {
 }
 
 #[allow(warnings)]
-#[derive(Eq, PartialEq, PartialOrd, Ord, Debug)]
+#[derive(Eq, PartialEq, PartialOrd, Ord, Debug, Clone, Default)]
 pub enum MaterialPass {
+    #[default]
     GLTF_PBR_MAIN_COLOR,
     GLTF_PBR_OPAQUE,
     GLTF_PBR_TRANSPARENT,
