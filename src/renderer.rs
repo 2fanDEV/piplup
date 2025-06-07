@@ -2,29 +2,27 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     ops::{Add, Deref},
-    sync::Arc,
+    rc::Weak,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        self, AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
+        AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
         ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
         DescriptorSetLayoutCreateFlags, DescriptorType, DynamicState, Extent2D, Extent3D, Fence,
         Filter, Format, FrontFace, ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType,
-        MemoryPropertyFlags, Offset2D, PipelineBindPoint, PipelineLayout, PipelineStageFlags,
-        PolygonMode, PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo,
-        SampleCountFlags, Sampler, Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents,
-        Viewport,
+        MemoryPropertyFlags, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode,
+        PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags,
+        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
     },
-    Device,
 };
-use egui::{frame, ImageData};
 use log::debug;
-use nalgebra::{Matrix4, Vector3, Vector4};
-use vk_mem::{Alloc, AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
+use nalgebra::{Matrix, Matrix4, Vector3, Vector4};
+use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
 const MAX_FRAMES: usize = 2;
@@ -70,15 +68,17 @@ use crate::{
     },
     egui::EguiRenderer,
     geom::{
-        assets::{self, MeshAsset},
+        assets::{self, GLTFMaterial, MeshAsset},
         push_constants::PushConstant,
         scene::SceneData,
         triangle_push_constant,
         vertex_3d::Vertex3D,
         VertexAttributes,
     },
-    misc::material::{
-        MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources,
+    misc::{
+        material::{MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources},
+        render_object::{MeshNode, Node, RenderObject},
+        DrawContext, RenderNode, Renderable,
     },
 };
 
@@ -100,7 +100,7 @@ pub struct Renderer {
     descriptor_writer: DescriptorWriter,
     single_image_descriptor: DescriptorSetDetails,
     gltf_pipeline: VkPipeline,
-    gltf_buffers: Vec<MeshAsset<Vertex3D>>,
+    gltf_buffers: Vec<Arc<Mutex<MeshAsset<Vertex3D>>>>,
     viewports: Vec<Viewport>,
     scissors: Vec<Rect2D>,
     swapchain_image_details: Vec<ImageDetails>,
@@ -112,6 +112,8 @@ pub struct Renderer {
     extent: Extent2D,
     command_pool: VkCommandPool,
     main_deletion_queue: DeletionQueue,
+    loaded_nodes: HashMap<String, Box<dyn Renderable>>,
+    draw_ctx: DrawContext,
     pub checkboard_image: AllocatedImage,
     pub egui_renderer: EguiRenderer,
 }
@@ -450,12 +452,14 @@ impl Renderer {
             render_pass.clone(),
             true,
         )?;
+
         let material_metallic_roughness_pipelines = MaterialMetallicRoughness::build_pipelines(
             vk_device.clone(),
             &extent,
             render_pass.clone(),
         )
         .unwrap();
+
         let material_constants = memory_allocator.create_buffer_with_mapped_memory(
             &[MaterialConstants::new(
                 Vector4::<f32>::new(1.0, 1.0, 1.0, 1.0),
@@ -485,7 +489,7 @@ impl Renderer {
                 &mut descriptor_allocator,
             )
             .unwrap();
-        let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
+        let mut gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
             viewports[0],
@@ -493,33 +497,20 @@ impl Renderer {
             &[graphics_queue.clone()],
             command_pool.clone(),
         )?;
-        /*  let mesh_triangle_buffers = vec![MeshBuffers::new(
-            mesh,
-            |elements, usage, mem_usage, mem_flags| {
-                memory_allocator
-                    .create_buffer(
-                        &elements,
-                        &[graphics_queue.clone()],
-                        usage,
-                        mem_usage,
-                        mem_flags,
-                        &command_pool,
-                    )
-                    .unwrap()
-            },
-            |elements, usage, mem_usage, mem_flags| {
-                memory_allocator
-                    .create_buffer(
-                        &elements,
-                        &[graphics_queue.clone()],
-                        usage,
-                        mem_usage,
-                        mem_flags,
-                        &command_pool,
-                    )
-                    .unwrap()
-            },
-        )?]; */
+        let mut loaded_nodes: HashMap<String, Box<dyn Renderable>> = HashMap::new();
+        for asset in &gltf_buffers {
+            let node = Arc::new(Node::new(
+                Weak::new(),
+                vec![],
+                Matrix4::from_element(1.0),
+                Matrix4::from_element(1.0),
+            ));
+            let mesh_node = MeshNode::<Vertex3D> {
+                node,
+                mesh_asset: asset.clone(),
+            };
+            loaded_nodes.insert(asset.lock().unwrap().name.clone(), Box::new(mesh_node));
+        }
 
         let egui_renderer = EguiRenderer::new(
             vk_device.clone(),
@@ -560,6 +551,10 @@ impl Renderer {
             frame_idx: 0,
             render_area,
             command_pool,
+            loaded_nodes,
+            draw_ctx: DrawContext {
+                opaque_surfaces: vec![],
+            },
             viewports,
             scissors,
             extent,
@@ -576,6 +571,8 @@ impl Renderer {
 
     fn draw(&mut self, frame_idx: usize, window: &Window) -> Result<()> {
         unsafe {
+            
+            self.update_scene();
             self.device.wait_for_fences(
                 &self.frame_data[frame_idx].render_fence,
                 true,
@@ -678,12 +675,13 @@ impl Renderer {
         viewports: &[Viewport],
         descriptor_set: &DescriptorSetDetails,
         gltf_pipeline: &VkPipeline,
-        gltf_buffers: &[MeshAsset<Vertex3D>],
+        gltf_buffers: &[Arc<Mutex<MeshAsset<Vertex3D>>>],
         memory_allocator: &Arc<MemoryAllocator>,
         extent: &Extent2D,
         render_pass: &Arc<VkRenderPass>,
         depth_image: &AllocatedImage,
         framebuffers: &HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
+        scene_data: &SceneData
     ) -> Result<()> {
         unsafe {
             let current_image = swapchain_image_details[**image_index as usize];
@@ -722,6 +720,7 @@ impl Renderer {
                 memory_allocator,
                 descriptor_set,
                 device,
+                scene_data,
                 extent,
                 viewports,
                 gltf_pipeline,
@@ -768,10 +767,11 @@ impl Renderer {
         cmd: CommandBuffer,
         window: &Window,
         frame_resources: &mut FrameResources,
-        gltf_buffers: &[MeshAsset<Vertex3D>],
+        gltf_buffers: &[Arc<Mutex<MeshAsset<Vertex3D>>>],
         memory_allocator: &Arc<MemoryAllocator>,
         descriptor_set: &DescriptorSetDetails,
         device: &Arc<VkDevice>,
+        scene_data: &SceneData,
         extent: &Extent2D,
         viewports: &[Viewport],
         gltf_pipeline: &VkPipeline,
@@ -780,9 +780,8 @@ impl Renderer {
         graphics_queue: &Arc<VkQueue>,
     ) -> Result<()> {
         unsafe {
-            let scene_data_size = size_of::<SceneData>();
-            let gpu_scene_data_buffer = memory_allocator.allocate_single_buffer(
-                scene_data_size as u64,
+            let gpu_scene_data_buffer = memory_allocator.create_buffer_with_mapped_memory(
+                scene_data_size ,
                 &[graphics_queue.clone()],
                 BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 vk_mem::MemoryUsage::Auto,
@@ -824,9 +823,15 @@ impl Renderer {
 
             device.cmd_set_scissor(cmd, 0, &[*render_area]);
             device.cmd_set_viewport(cmd, 0, viewports);
-
-            let push_constants_data =
-                triangle_push_constant(gltf_buffers[2].mesh_buffers.vertex_buffer.address, *extent);
+            let push_constants_data = triangle_push_constant(
+                gltf_buffers[2]
+                    .lock()
+                    .unwrap()
+                    .mesh_buffers
+                    .vertex_buffer
+                    .address,
+                *extent,
+            );
             device.cmd_push_constants(
                 cmd,
                 gltf_pipeline.pipeline_layout,
@@ -837,19 +842,17 @@ impl Renderer {
 
             device.cmd_bind_index_buffer(
                 cmd,
-                gltf_buffers[2].mesh_buffers.index_buffer.buffer,
+                gltf_buffers[2]
+                    .lock()
+                    .unwrap()
+                    .mesh_buffers
+                    .index_buffer
+                    .buffer,
                 0,
                 IndexType::UINT32,
             );
-
-            device.cmd_draw_indexed(
-                cmd,
-                gltf_buffers[2].surfaces[0].count as u32,
-                1,
-                gltf_buffers[2].surfaces[0].start_index,
-                0,
-                0,
-            );
+            let surface = &gltf_buffers[2].lock().unwrap().surfaces[0];
+            device.cmd_draw_indexed(cmd, surface.count as u32, 1, surface.start_index, 0, 0);
         };
         Ok(())
     }
@@ -894,5 +897,29 @@ impl Renderer {
                 .queue_present(queue, &present_info)
                 .unwrap()
         };
+    }
+
+    pub fn update_scene(&mut self) {
+        let (width, height) = (self.extent.width, self.extent.height);
+
+        debug!("LOL");
+        self.draw_ctx.opaque_surfaces.clear();
+
+        self.loaded_nodes
+            .get("Suzanne")
+            .unwrap()
+            .draw(Matrix4::from_element(1.0), &mut self.draw_ctx);
+        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -5.0));
+        self.scene_data.proj = Matrix4::new_perspective(
+            70.0_f32.to_radians(),
+            (width / height) as f32,
+            0.1,
+            10000.0,
+        );
+        self.scene_data.sunlight_color = Vector4::from_element(1.0);
+        self.scene_data.ambient_color = Vector4::from_element(1.0);
+        self.scene_data.sunlight_direction = Vector4::new(0.0, 1.0, 0.0, 1.0);
+
+             
     }
 }

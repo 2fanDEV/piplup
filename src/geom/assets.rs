@@ -1,4 +1,4 @@
-use std::{fmt::Display, ops::DerefMut, path::Path, sync::Arc, usize};
+use std::{fmt::Display, ops::DerefMut, path::Path, sync::{Arc, Mutex}, usize};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{Rect2D, Viewport};
@@ -7,7 +7,7 @@ use nalgebra::{Vector2, Vector3, Vector4};
 use crate::{components::{
     allocation_types::VkBuffer, command_buffers::VkCommandPool, memory_allocator::MemoryAllocator,
     queue::VkQueue,
-}, misc::material::MaterialInstance};
+}, misc::{material::MaterialInstance, render_object::Node}};
 
 use super::{
     mesh::{self, MeshBuffers},
@@ -16,7 +16,7 @@ use super::{
 };
 
 #[derive(Clone, Debug, Default)]
-struct GLTFMaterial {
+pub struct GLTFMaterial {
     pub data: MaterialInstance
 }
 
@@ -24,7 +24,7 @@ struct GLTFMaterial {
 pub struct GeoSurface {
     pub start_index: u32,
     pub count: usize,
-    pub material: GLTFMaterial
+    pub material: Option<Arc<GLTFMaterial>>
 }
 
 #[derive(Debug)]
@@ -32,6 +32,14 @@ pub struct MeshAsset<T: VertexAttributes> {
     pub name: String,
     pub surfaces: Vec<GeoSurface>,
     pub mesh_buffers: MeshBuffers<T, u32>,
+}
+
+
+impl GeoSurface {
+    pub fn material(&mut self, material: Option<Arc<GLTFMaterial>>) -> Self {
+        self.material = material;
+        self.clone()
+    }
 }
 
 impl<T: VertexAttributes> MeshAsset<T> {
@@ -50,8 +58,8 @@ impl<T: VertexAttributes> MeshAsset<T> {
         memory_allocator: Arc<MemoryAllocator>,
         queues: &[Arc<VkQueue>],
         command_pool: VkCommandPool,
-    ) -> Result<Vec<MeshAsset<Vertex3D>>> {
-        let mut mesh_assets: Vec<MeshAsset<Vertex3D>> = vec![];
+    ) -> Result<Vec<Arc<Mutex<MeshAsset<Vertex3D>>>>> {
+        let mut mesh_assets: Vec<Arc<Mutex<MeshAsset<Vertex3D>>>> = vec![];
         let mut vertices: Vec<Vertex3D> = vec![];
         let mut indices: Vec<usize> = vec![];
         let mut surfaces: Vec<GeoSurface> = vec![];
@@ -70,6 +78,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                 let surface = GeoSurface {
                     start_index: indices.len() as u32,
                     count: primitive.indices().unwrap().count(),
+                    material: None
                 };
                 surfaces.push(surface);
                 //let initial_vtx = vertices.len();
@@ -153,12 +162,12 @@ impl<T: VertexAttributes> MeshAsset<T> {
                             .get_copied::<VkBuffer>()
                     },
                 )?;
-
-                mesh_assets.push(MeshAsset::new(
+                
+                mesh_assets.push(Arc::new(Mutex::new(MeshAsset::new(
                     mesh.name().map(|s| s.to_owned()).unwrap(),
                     surfaces.clone(),
                     mesh_buffer,
-                ));
+                ))));
             }
         }
 

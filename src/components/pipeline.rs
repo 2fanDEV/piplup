@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use std::default;
 use std::{io::Error, ops::Deref, sync::Arc};
 
 use ash::vk::{
@@ -50,14 +51,15 @@ impl ShaderInformation {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum PipelineType {
+    #[default]
     GRAPHICS,
     COMPUTE,
 }
 
 #[allow(unused)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct VkPipeline {
     pipeline: Pipeline,
     pub pipeline_layout: PipelineLayout,

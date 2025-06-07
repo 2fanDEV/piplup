@@ -2,12 +2,12 @@ use nalgebra::{Matrix4, Vector4};
 
 #[derive(Default)]
 pub struct SceneData {
-    view: Matrix4<f32>,
-    proj: Matrix4<f32>,
-    view_proj: Matrix4<f32>,
-    ambient_color: Vector4<f32>,
-    sunlight_direction: Vector4<f32>,
-    sunlight_color: Vector4<f32>,
+    pub view: Matrix4<f32>,
+    pub proj: Matrix4<f32>,
+    pub view_proj: Matrix4<f32>,
+    pub ambient_color: Vector4<f32>,
+    pub sunlight_direction: Vector4<f32>,
+    pub sunlight_color: Vector4<f32>,
 }
 
 impl SceneData {
