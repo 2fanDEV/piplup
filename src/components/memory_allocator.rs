@@ -5,6 +5,7 @@ use ash::vk::{
     ImageAspectFlags, ImageLayout, ImageUsageFlags, MemoryPropertyFlags, Packed24_8, SharingMode,
 };
 use egui::{Color32, ImageData};
+use log::debug;
 use vk_mem::{
     Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo,
     MemoryUsage,
@@ -331,7 +332,7 @@ impl MemoryAllocator {
     where
         T: Clone + Debug,
     {
-        let buffer_size = std::mem::size_of_val(buffer_elements) as u64;
+        let buffer_size = (size_of::<T>() * buffer_elements.len()) as u64;
         let mut staging_buffer = self.staging_buffer(buffer_size, buffer_elements, queues)?;
         let data = unsafe { self.map_memory(&mut staging_buffer.allocation).unwrap() };
         unsafe {

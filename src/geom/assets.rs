@@ -124,7 +124,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                         color,
                     ));
                 }
-
+                
                 let mesh_buffer = MeshBuffers::new(
                     mesh::Mesh::<Vertex3D, u32> {
                         vertices: vertices.clone(),

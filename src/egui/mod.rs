@@ -290,7 +290,7 @@ impl EguiRenderer {
             },
             window,
         );
-
+        
         self.mesh_buffers = self
             .integration
             .convert(self.extent, &full_output)

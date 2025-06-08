@@ -31,6 +31,7 @@ pub struct MaterialPipeline {
     pub pipeline_layout: PipelineLayout,
 }
 
+#[repr(C)]
 #[derive(Default, Debug, Clone)]
 pub struct MaterialConstants {
     pub color_factors: Vector4<f32>,
@@ -63,9 +64,9 @@ pub struct MaterialResources {
 
 #[derive(Default, Debug, Clone)]
 pub struct MaterialInstance {
-    pipeline: MaterialPipeline,
-    material_set: DescriptorSetDetails,
-    pass: MaterialPass,
+    pub pipeline: MaterialPipeline,
+    pub material_set: DescriptorSetDetails,
+    pub pass: MaterialPass,
 }
 
 #[allow(warnings)]

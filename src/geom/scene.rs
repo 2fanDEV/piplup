@@ -1,6 +1,7 @@
 use nalgebra::{Matrix4, Vector4};
 
-#[derive(Default)]
+#[repr(C)]
+#[derive(Debug, Default)]
 pub struct SceneData {
     pub view: Matrix4<f32>,
     pub proj: Matrix4<f32>,

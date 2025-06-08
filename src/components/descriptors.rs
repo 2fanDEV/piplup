@@ -141,7 +141,7 @@ impl DescriptorWriter {
         }
         unsafe { device.update_descriptor_sets(&writes, &[]) };
     }
-
+    
     pub fn clear(&mut self) {
         self.image_infos.clear();
         self.buffer_infos.clear();
@@ -188,7 +188,6 @@ impl DescriptorAllocator {
         let full_pools = vec![];
         let pool = Self::create_pool(&device, max_sets, &pool_sizes).unwrap();
         ready_pools.push(pool);
-
         Self {
             device: device.clone(),
             ratios: pool_sizes,
@@ -273,6 +272,7 @@ impl DescriptorAllocator {
         descriptor_type: DescriptorType,
     ) -> Result<DescriptorSetDetails, Error> {
         let mut writer = DescriptorWriter::new();
+        debug!("{size:?}");
         let mut descriptor_layout_builder = DescriptorLayoutBuilder::new();
         descriptor_layout_builder.add_binding(0, descriptor_type, shader_stage);
         let layout = descriptor_layout_builder.build(
@@ -304,8 +304,7 @@ impl DescriptorAllocator {
                     .unwrap();
                 self.ready_pools.push(*pool);
             }
-
-            self.full_pools.clear();
+            self.clear_pools();
         }
     }
 

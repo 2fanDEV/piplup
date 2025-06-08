@@ -10,18 +10,18 @@ use anyhow::{Error, Result};
 use ash::{
     ext::debug_utils,
     vk::{
-        AttachmentLoadOp, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
+        AttachmentLoadOp, Buffer, BufferUsageFlags, ClearDepthStencilValue, ClearValue,
         ColorComponentFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags,
         CommandBufferUsageFlags, CullModeFlags, DebugUtilsMessengerEXT,
         DescriptorSetLayoutCreateFlags, DescriptorType, DynamicState, Extent2D, Extent3D, Fence,
         Filter, Format, FrontFace, ImageAspectFlags, ImageLayout, ImageUsageFlags, IndexType,
         MemoryPropertyFlags, Offset2D, PipelineBindPoint, PipelineStageFlags, PolygonMode,
         PresentInfoKHR, PrimitiveTopology, Queue, Rect2D, RenderPassBeginInfo, SampleCountFlags,
-        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport,
+        Semaphore, ShaderStageFlags, SubmitInfo, SubpassContents, Viewport, WHOLE_SIZE,
     },
 };
 use log::debug;
-use nalgebra::{Matrix, Matrix4, Vector3, Vector4};
+use nalgebra::{Matrix4, Vector3, Vector4};
 use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
@@ -69,8 +69,9 @@ use crate::{
     egui::EguiRenderer,
     geom::{
         assets::{self, GLTFMaterial, MeshAsset},
+        gpu_scene_push_constant,
         push_constants::PushConstant,
-        scene::SceneData,
+        scene::{self, SceneData},
         triangle_push_constant,
         vertex_3d::Vertex3D,
         VertexAttributes,
@@ -480,7 +481,7 @@ impl Renderer {
             data_buffer: material_constants.unit.get_copied::<VkBuffer>(),
             buffer_offset: 0,
         };
-
+        
         let material_instance = material_metallic_roughness_pipelines
             .write_material(
                 vk_device.clone(),
@@ -489,7 +490,8 @@ impl Renderer {
                 &mut descriptor_allocator,
             )
             .unwrap();
-        let mut gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
+        debug!("{:?}", material_instance);
+        let gltf_buffers = assets::MeshAsset::<Vertex3D>::load_gltf_meshes(
             "/Users/zapzap/Projects/piplup/assets/basicmesh.glb",
             scissors[0],
             viewports[0],
@@ -505,13 +507,15 @@ impl Renderer {
                 Matrix4::from_element(1.0),
                 Matrix4::from_element(1.0),
             ));
-            let mesh_node = MeshNode::<Vertex3D> {
-                node,
-                mesh_asset: asset.clone(),
-            };
+            for surface in asset.lock().unwrap().surfaces.iter_mut() {
+                surface.material(Some(Arc::new(GLTFMaterial {
+                    data: material_instance.clone(),
+                })));
+            }
+            let mesh_node = MeshNode::<Vertex3D>::new(node, asset.clone());
             loaded_nodes.insert(asset.lock().unwrap().name.clone(), Box::new(mesh_node));
         }
-
+        debug!("{loaded_nodes:?}");
         let egui_renderer = EguiRenderer::new(
             vk_device.clone(),
             window,
@@ -571,7 +575,6 @@ impl Renderer {
 
     fn draw(&mut self, frame_idx: usize, window: &Window) -> Result<()> {
         unsafe {
-            
             self.update_scene();
             self.device.wait_for_fences(
                 &self.frame_data[frame_idx].render_fence,
@@ -597,7 +600,10 @@ impl Renderer {
                 self.frame_data[frame_idx].command_buffer,
                 CommandBufferResetFlags::empty(),
             )?;
-
+            self.frame_data[frame_idx]
+                .frame_resources
+                .per_frame_deletion_queue
+                .flush();
             let stage_masks = vec![
                 PipelineStageFlags::VERTEX_SHADER,
                 PipelineStageFlags::FRAGMENT_SHADER,
@@ -606,6 +612,7 @@ impl Renderer {
             {
                 Self::record_command_buffer(
                     self.frame_data[frame_idx].command_buffer,
+                    &self.command_pool,
                     &image_index,
                     window,
                     &mut self.frame_data[frame_idx].frame_resources,
@@ -623,6 +630,8 @@ impl Renderer {
                     &self.render_pass,
                     &self.depth_image,
                     &self.framebuffers,
+                    &self.scene_data,
+                    &self.draw_ctx,
                 )
                 .unwrap();
             }
@@ -633,7 +642,6 @@ impl Renderer {
                 self.viewports.clone(),
                 self.render_area,
             )?;
-            let frame_data = &self.frame_data[frame_idx];
             self.submit_queue(
                 **self.graphics_queue,
                 frame_idx,
@@ -649,21 +657,22 @@ impl Renderer {
                 &self.frame_data[frame_idx].render_semaphore,
                 &image_indices,
             );
-            self.frame_data[self.frame_idx]
-                .frame_resources
-                .deletion_queue
-                .flush();
-            self.frame_data[self.frame_idx]
+            let frame_data = &mut self.frame_data[frame_idx];
+
+            frame_data.frame_resources.descriptor_layout_builder.clear();
+            frame_data
                 .frame_resources
                 .descriptor_allocator
                 .borrow_mut()
-                .clear_pools();
+                .reset_descriptors(self.device.clone());
+            frame_data.frame_resources.descriptor_writer.clear();
         }
         Ok(())
     }
 
     fn record_command_buffer(
         cmd: CommandBuffer,
+        command_pool: &VkCommandPool,
         image_index: &ImageIndex,
         window: &Window,
         frame_resources: &mut FrameResources,
@@ -681,7 +690,8 @@ impl Renderer {
         render_pass: &Arc<VkRenderPass>,
         depth_image: &AllocatedImage,
         framebuffers: &HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
-        scene_data: &SceneData
+        scene_data: &SceneData,
+        draw_ctx: &DrawContext,
     ) -> Result<()> {
         unsafe {
             let current_image = swapchain_image_details[**image_index as usize];
@@ -726,7 +736,9 @@ impl Renderer {
                 gltf_pipeline,
                 render_area,
                 draw_image,
+                draw_ctx,
                 graphics_queue,
+                command_pool,
             )?;
             device.cmd_end_render_pass(cmd);
             image_transition(
@@ -777,82 +789,101 @@ impl Renderer {
         gltf_pipeline: &VkPipeline,
         render_area: &Rect2D,
         draw_image: &AllocatedImage,
+        draw_ctx: &DrawContext,
         graphics_queue: &Arc<VkQueue>,
+        command_pool: &VkCommandPool,
     ) -> Result<()> {
         unsafe {
             let gpu_scene_data_buffer = memory_allocator.create_buffer_with_mapped_memory(
-                scene_data_size ,
+                &[scene_data],
                 &[graphics_queue.clone()],
                 BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 vk_mem::MemoryUsage::Auto,
                 MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
+                command_pool,
             )?;
 
             let scene_data_allocation = gpu_scene_data_buffer.allocation;
             let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
 
             frame_resources
-                .deletion_queue
+                .per_frame_deletion_queue
                 .enqueue(FType::TASK(Box::new(DestroyBufferTask {
                     buffer: *gpu_scene_data_buffer,
                     allocation: scene_data_allocation,
                 })));
 
-            //write buffer with self.scene data
-            // HERE
-            //
-            // Descriptors
-            let descriptor_write = frame_resources
+            let scene_data_descriptor_layout = frame_resources
+                .descriptor_layout_builder
+                .add_binding(
+                    0,
+                    DescriptorType::UNIFORM_BUFFER,
+                    ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+                )
+                .build(
+                    device.clone(),
+                    ShaderStageFlags::empty(),
+                    DescriptorSetLayoutCreateFlags::empty(),
+                );
+            let scene_data_set = frame_resources
                 .descriptor_allocator
                 .borrow_mut()
-                .write_buffer_descriptors(
-                    &gpu_scene_data_buffer,
-                    scene_data_size as u64,
-                    ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
-                    DescriptorType::UNIFORM_BUFFER,
-                )?;
-            device.cmd_bind_pipeline(cmd, PipelineBindPoint::GRAPHICS, **gltf_pipeline);
-            device.cmd_bind_descriptor_sets(
-                cmd,
-                PipelineBindPoint::GRAPHICS,
-                gltf_pipeline.pipeline_layout,
+                .allocate(device.clone(), &[scene_data_descriptor_layout]);
+            frame_resources.descriptor_writer.write_buffer(
                 0,
-                descriptor_set,
-                &[],
+                gpu_scene_data_buffer,
+                size_of::<Buffer>() as u64,
+                0,
+                DescriptorType::UNIFORM_BUFFER,
             );
-
+            frame_resources
+                .descriptor_writer
+                .update_set(device.clone(), scene_data_set[0]);
             device.cmd_set_scissor(cmd, 0, &[*render_area]);
             device.cmd_set_viewport(cmd, 0, viewports);
-            let push_constants_data = triangle_push_constant(
-                gltf_buffers[2]
-                    .lock()
-                    .unwrap()
-                    .mesh_buffers
-                    .vertex_buffer
-                    .address,
-                *extent,
-            );
-            device.cmd_push_constants(
-                cmd,
-                gltf_pipeline.pipeline_layout,
-                ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
-                0,
-                &push_constants_data,
-            );
 
-            device.cmd_bind_index_buffer(
-                cmd,
-                gltf_buffers[2]
-                    .lock()
-                    .unwrap()
-                    .mesh_buffers
-                    .index_buffer
-                    .buffer,
-                0,
-                IndexType::UINT32,
-            );
-            let surface = &gltf_buffers[2].lock().unwrap().surfaces[0];
-            device.cmd_draw_indexed(cmd, surface.count as u32, 1, surface.start_index, 0, 0);
+            for render_obj in &draw_ctx.opaque_surfaces {
+                device.cmd_bind_pipeline(
+                    cmd,
+                    PipelineBindPoint::GRAPHICS,
+                    *render_obj.material.pipeline.pipeline,
+                );
+                device.cmd_bind_descriptor_sets(
+                    cmd,
+                    PipelineBindPoint::GRAPHICS,
+                    render_obj.material.pipeline.pipeline_layout,
+                    0,
+                    &scene_data_set,
+                    &[],
+                );
+                device.cmd_bind_descriptor_sets(
+                    cmd,
+                    PipelineBindPoint::GRAPHICS,
+                    render_obj.material.pipeline.pipeline_layout,
+                    1,
+                    &render_obj.material.material_set,
+                    &[],
+                ); 
+
+                device.cmd_bind_index_buffer(cmd, *render_obj.index_buffer, 0, IndexType::UINT32);
+                let gpu_push_constant =
+                    gpu_scene_push_constant(render_obj.transform, render_obj.vertex_buffer_address);
+                device.cmd_push_constants(
+                    cmd,
+                    render_obj.material.pipeline.pipeline_layout,
+                    ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT,
+                    0,
+                    &gpu_push_constant,
+                );
+                device.cmd_draw_indexed(
+                    cmd,
+                    render_obj.index_count,
+                    1,
+                    render_obj.first_index,
+                    0,
+                    0,
+                );
+            }
         };
         Ok(())
     }
@@ -901,25 +932,23 @@ impl Renderer {
 
     pub fn update_scene(&mut self) {
         let (width, height) = (self.extent.width, self.extent.height);
-
-        debug!("LOL");
         self.draw_ctx.opaque_surfaces.clear();
-
         self.loaded_nodes
             .get("Suzanne")
             .unwrap()
             .draw(Matrix4::from_element(1.0), &mut self.draw_ctx);
-        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -5.0));
-        self.scene_data.proj = Matrix4::new_perspective(
-            70.0_f32.to_radians(),
-            (width / height) as f32,
-            0.1,
-            10000.0,
-        );
+        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -2.0));
+        self.scene_data.proj =
+            Matrix4::new_perspective(70.0_f32.to_radians(), (width as f32/ height as f32), 0.1, 1000.0);
+        self.scene_data.view_proj = self.scene_data.proj * self.scene_data.view;
         self.scene_data.sunlight_color = Vector4::from_element(1.0);
-        self.scene_data.ambient_color = Vector4::from_element(1.0);
-        self.scene_data.sunlight_direction = Vector4::new(0.0, 1.0, 0.0, 1.0);
+        self.scene_data.ambient_color = Vector4::from_element(0.1);
+        self.scene_data.sunlight_direction = Vector4::new(0.0, 1.0, 0.5, 1.0);
 
-             
+        /*for x in -3..3 {
+            let scale: Matrix4<f32> = Matrix4::default().scale(0.2);
+            let translation = Matrix4::new_translation(&Vector3::new(x as f32, 1.0, 0.0));
+            self.loaded_nodes.get("Cube").unwrap().draw(translation * scale, &mut self.draw_ctx);
+        }*/
     }
 }

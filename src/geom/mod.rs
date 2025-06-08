@@ -39,6 +39,11 @@ pub fn egui_push_constant(window: &Window) -> Vec<u8> {
     push_constant.raw_data_of_T()
 }
 
+pub fn gpu_scene_push_constant(transform: Matrix4<f32>, buffer_address: DeviceAddress) -> Vec<u8> {
+    PushConstant::new(transform, buffer_address).raw_data()
+}
+
+
 pub fn triangle_push_constant(buffer_address: DeviceAddress, extent: Extent2D) -> Vec<u8> {
     let (height, width) = (extent.height, extent.width);
     let view = Matrix4::<f32>::new_translation(&Vector3::new(0.0, 0.0, -2.0));
