@@ -19,6 +19,7 @@ use log::debug;
 
 use super::{allocation_types::VkBuffer, device::VkDevice, sampler::VkSampler};
 
+
 #[derive(Debug, Clone, Default)]
 pub struct DescriptorSetDetails {
     descriptor_set: Vec<DescriptorSet>,

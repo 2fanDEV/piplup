@@ -4,7 +4,6 @@ use std::{
 };
 
 use ash::vk::DeviceAddress;
-use log::debug;
 use nalgebra::Matrix4;
 
 use crate::{
@@ -105,6 +104,6 @@ impl<T: VertexAttributes> Renderable for MeshNode<T> {
             };
             draw_ctx.opaque_surfaces.push(render_obj);
         }
-      self.node.draw(top_matrix, draw_ctx);
+ //     self.node.draw(top_matrix, draw_ctx);
     }
 }

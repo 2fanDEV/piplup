@@ -62,6 +62,7 @@ pub struct MaterialResources {
     pub buffer_offset: u64,
 }
 
+#[repr(C)]
 #[derive(Default, Debug, Clone)]
 pub struct MaterialInstance {
     pub pipeline: MaterialPipeline,

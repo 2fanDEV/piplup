@@ -630,7 +630,7 @@ impl Renderer {
                     &self.render_pass,
                     &self.depth_image,
                     &self.framebuffers,
-                    &self.scene_data,
+                    self.scene_data.clone(),
                     &self.draw_ctx,
                 )
                 .unwrap();
@@ -690,7 +690,7 @@ impl Renderer {
         render_pass: &Arc<VkRenderPass>,
         depth_image: &AllocatedImage,
         framebuffers: &HashMap<IDENTIFIER, Vec<VkFrameBuffer>>,
-        scene_data: &SceneData,
+        scene_data: SceneData,
         draw_ctx: &DrawContext,
     ) -> Result<()> {
         unsafe {
@@ -783,7 +783,7 @@ impl Renderer {
         memory_allocator: &Arc<MemoryAllocator>,
         descriptor_set: &DescriptorSetDetails,
         device: &Arc<VkDevice>,
-        scene_data: &SceneData,
+        scene_data: SceneData,
         extent: &Extent2D,
         viewports: &[Viewport],
         gltf_pipeline: &VkPipeline,
@@ -794,18 +794,17 @@ impl Renderer {
         command_pool: &VkCommandPool,
     ) -> Result<()> {
         unsafe {
-            let gpu_scene_data_buffer = memory_allocator.create_buffer_with_mapped_memory(
+            let gpu_scene_data_buffer = memory_allocator.create_buffer_with_mapped_memory::<SceneData>(
                 &[scene_data],
                 &[graphics_queue.clone()],
                 BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                 vk_mem::MemoryUsage::Auto,
-                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::DEVICE_LOCAL,
+                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
                 command_pool,
             )?;
 
             let scene_data_allocation = gpu_scene_data_buffer.allocation;
             let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
-
             frame_resources
                 .per_frame_deletion_queue
                 .enqueue(FType::TASK(Box::new(DestroyBufferTask {
@@ -832,7 +831,7 @@ impl Renderer {
             frame_resources.descriptor_writer.write_buffer(
                 0,
                 gpu_scene_data_buffer,
-                size_of::<Buffer>() as u64,
+                size_of::<SceneData>() as u64,
                 0,
                 DescriptorType::UNIFORM_BUFFER,
             );
@@ -937,9 +936,9 @@ impl Renderer {
             .get("Suzanne")
             .unwrap()
             .draw(Matrix4::from_element(1.0), &mut self.draw_ctx);
-        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -2.0));
+        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -5.0));
         self.scene_data.proj =
-            Matrix4::new_perspective(70.0_f32.to_radians(), (width as f32/ height as f32), 0.1, 1000.0);
+            Matrix4::new_perspective(70.0_f32.to_radians(), (width as f32/ height as f32), 0.1, 10000.0);
         self.scene_data.view_proj = self.scene_data.proj * self.scene_data.view;
         self.scene_data.sunlight_color = Vector4::from_element(1.0);
         self.scene_data.ambient_color = Vector4::from_element(0.1);

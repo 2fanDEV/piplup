@@ -204,7 +204,7 @@ impl MemoryAllocator {
             .height(image_data.height() as u32)
             .width(image_data.width() as u32)
             .depth(1);
- 
+
         let image = self
             .create_image(
                 extent,

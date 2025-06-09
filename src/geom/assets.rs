@@ -2,6 +2,7 @@ use std::{fmt::Display, ops::DerefMut, path::Path, sync::{Arc, Mutex}, usize};
 
 use anyhow::{anyhow, Result};
 use ash::vk::{Rect2D, Viewport};
+use log::debug;
 use nalgebra::{Vector2, Vector3, Vector4};
 
 use crate::{components::{
@@ -108,13 +109,15 @@ impl<T: VertexAttributes> MeshAsset<T> {
                         .map(|normal| [normal[0], normal[1], normal[2], 1.0])
                         .collect::<Vec<_>>(),
                 };
+                let override_color = true;
+                let white_color = [1.0, 1.0, 1.0, 1.0];
 
                 for (idx, pos_arr) in positions.into_iter().enumerate() {
                     let pos = Vector3::new(pos_arr[0], pos_arr[1], pos_arr[2]);
                     let normal_arr = normals[idx];
                     let normal = Vector3::new(normal_arr[0], normal_arr[1], normal_arr[2]);
                     let uv_arr = uvs[idx];
-                    let color_arr = colors[idx];
+                    let color_arr = if override_color { colors[idx] } else { white_color };
                     let color =
                         Vector4::<f32>::new(color_arr[0], color_arr[1], color_arr[2], color_arr[3]);
                     vertices.push(Vertex3D::new(
@@ -124,6 +127,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                         color,
                     ));
                 }
+
                 
                 let mesh_buffer = MeshBuffers::new(
                     mesh::Mesh::<Vertex3D, u32> {
