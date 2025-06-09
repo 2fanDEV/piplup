@@ -21,7 +21,7 @@ use ash::{
     },
 };
 use log::debug;
-use nalgebra::{Matrix4, Vector3, Vector4};
+use nalgebra::{Matrix4, Perspective3, Scale3, Scale4, Vector3, Vector4};
 use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo, MemoryUsage};
 use winit::window::Window;
 
@@ -77,9 +77,7 @@ use crate::{
         VertexAttributes,
     },
     misc::{
-        material::{MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources},
-        render_object::{MeshNode, Node, RenderObject},
-        DrawContext, RenderNode, Renderable,
+        camera::Camera, material::{MaterialConstants, MaterialMetallicRoughness, MaterialPass, MaterialResources}, render_object::{MeshNode, Node, RenderObject}, DrawContext, RenderNode, Renderable
     },
 };
 
@@ -114,6 +112,7 @@ pub struct Renderer {
     command_pool: VkCommandPool,
     main_deletion_queue: DeletionQueue,
     loaded_nodes: HashMap<String, Box<dyn Renderable>>,
+    camera: Camera,
     draw_ctx: DrawContext,
     pub checkboard_image: AllocatedImage,
     pub egui_renderer: EguiRenderer,
@@ -481,7 +480,7 @@ impl Renderer {
             data_buffer: material_constants.unit.get_copied::<VkBuffer>(),
             buffer_offset: 0,
         };
-        
+
         let material_instance = material_metallic_roughness_pipelines
             .write_material(
                 vk_device.clone(),
@@ -504,8 +503,8 @@ impl Renderer {
             let node = Arc::new(Node::new(
                 Weak::new(),
                 vec![],
-                Matrix4::from_element(1.0),
-                Matrix4::from_element(1.0),
+                Matrix4::identity(),
+                Matrix4::identity(),
             ));
             for surface in asset.lock().unwrap().surfaces.iter_mut() {
                 surface.material(Some(Arc::new(GLTFMaterial {
@@ -794,14 +793,15 @@ impl Renderer {
         command_pool: &VkCommandPool,
     ) -> Result<()> {
         unsafe {
-            let gpu_scene_data_buffer = memory_allocator.create_buffer_with_mapped_memory::<SceneData>(
-                &[scene_data],
-                &[graphics_queue.clone()],
-                BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-                vk_mem::MemoryUsage::Auto,
-                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
-                command_pool,
-            )?;
+            let gpu_scene_data_buffer = memory_allocator
+                .create_buffer_with_mapped_memory::<SceneData>(
+                    &[scene_data],
+                    &[graphics_queue.clone()],
+                    BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                    vk_mem::MemoryUsage::Auto,
+                    MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+                    command_pool,
+                )?;
 
             let scene_data_allocation = gpu_scene_data_buffer.allocation;
             let gpu_scene_data_buffer = gpu_scene_data_buffer.unit.get_copied::<VkBuffer>();
@@ -862,7 +862,7 @@ impl Renderer {
                     1,
                     &render_obj.material.material_set,
                     &[],
-                ); 
+                );
 
                 device.cmd_bind_index_buffer(cmd, *render_obj.index_buffer, 0, IndexType::UINT32);
                 let gpu_push_constant =
@@ -933,21 +933,34 @@ impl Renderer {
         let (width, height) = (self.extent.width, self.extent.height);
         self.draw_ctx.opaque_surfaces.clear();
         self.loaded_nodes
-            .get("Suzanne")
-            .unwrap()
-            .draw(Matrix4::from_element(1.0), &mut self.draw_ctx);
-        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -5.0));
-        self.scene_data.proj =
-            Matrix4::new_perspective(70.0_f32.to_radians(), (width as f32/ height as f32), 0.1, 10000.0);
+        .get("Suzanne")
+        .unwrap()
+        .draw(Matrix4::identity(), &mut self.draw_ctx);
+        for x in -3..3 {
+            let scale = nalgebra::Scale3::new(0.2, 0.2, 0.2).to_homogeneous();
+            let translation = Matrix4::new_translation(&Vector3::new(x as f32, 1.0, 0.0));            
+            self.loaded_nodes
+                .get("Cube")
+                .unwrap()
+                .draw(translation * scale, &mut self.draw_ctx);
+        }
+        self.scene_data.view = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -2.0));
+        self.scene_data.proj = Perspective3::new(
+            90.0_f32.to_radians(),
+            width as f32 / height as f32,
+            0.1,
+            1000.0,
+        )
+        .to_homogeneous();
         self.scene_data.view_proj = self.scene_data.proj * self.scene_data.view;
         self.scene_data.sunlight_color = Vector4::from_element(1.0);
         self.scene_data.ambient_color = Vector4::from_element(0.1);
         self.scene_data.sunlight_direction = Vector4::new(0.0, 1.0, 0.5, 1.0);
 
-        /*for x in -3..3 {
+        /*       for x in -3..3 {
             let scale: Matrix4<f32> = Matrix4::default().scale(0.2);
             let translation = Matrix4::new_translation(&Vector3::new(x as f32, 1.0, 0.0));
             self.loaded_nodes.get("Cube").unwrap().draw(translation * scale, &mut self.draw_ctx);
-        }*/
+        } */
     }
 }

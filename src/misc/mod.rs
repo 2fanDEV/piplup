@@ -5,6 +5,7 @@ use render_object::RenderObject;
 
 pub mod render_object;
 pub mod material;
+pub mod camera;
 
 pub struct DrawContext {
     pub opaque_surfaces: Vec<RenderObject>

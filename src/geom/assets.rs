@@ -109,7 +109,7 @@ impl<T: VertexAttributes> MeshAsset<T> {
                         .map(|normal| [normal[0], normal[1], normal[2], 1.0])
                         .collect::<Vec<_>>(),
                 };
-                let override_color = true;
+                let override_color = false;
                 let white_color = [1.0, 1.0, 1.0, 1.0];
 
                 for (idx, pos_arr) in positions.into_iter().enumerate() {
